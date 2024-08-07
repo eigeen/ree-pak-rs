@@ -1,0 +1,5 @@
+[workspace]
+resolver = "2"
+members = ["ree-pak-core", "ree-pak-cli"]
+
+[workspace.dependencies]
