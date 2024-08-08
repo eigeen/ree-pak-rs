@@ -1,11 +1,14 @@
 use std::{
+    collections::{HashMap, HashSet},
     io::{Read, Seek, SeekFrom, Write},
-    path::Path,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
 };
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use entry::{CompressionMethod, EntryKindA, EntryKindB, EntryTable};
 use header::{HeaderError, PackageHeader};
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
 use crate::{compression, filename::FileNameTable};
 
@@ -29,7 +32,6 @@ pub enum PackageError {
 
 #[derive(Debug, Clone)]
 pub enum ProgressState {
-    Decompressed(usize),
     Wrote(usize),
 }
 
@@ -109,9 +111,6 @@ impl Package {
                     compression::decompress_zstd(&mut &buffer[..])?
                 }
             };
-            if let Some(callback) = &progress_callback {
-                callback(ProgressState::Decompressed(i));
-            }
 
             // write decompressed data
             let file_name = self.get_file_name(entry.hash()).unwrap_or_else(|| {
@@ -135,6 +134,104 @@ impl Package {
                 callback(ProgressState::Wrote(i));
             }
         }
+
+        Ok(())
+    }
+
+    pub fn par_export_files<P, R, F>(
+        &self,
+        output_dir: P,
+        file_stream: R,
+        progress_callback: Option<F>,
+    ) -> Result<()>
+    where
+        P: AsRef<Path> + Send + Sync,
+        R: Read + Seek + Send,
+        F: Fn(ProgressState) + Send + Sync,
+    {
+        let entry_table = self.entry_table.clone();
+        let file_stream = Arc::new(Mutex::new(file_stream));
+
+        // pre-create output directory
+        // key: file hash, value: (is_unknown, output path)
+        let mut file_output: HashMap<u64, (bool, PathBuf)> = HashMap::new();
+        // value: output path
+        let mut output_dirs = HashSet::new();
+        entry_table.into_iter().for_each(|entry| {
+            let hash_name = entry.hash();
+            let mut is_unknown = false;
+            let rel_path = self.get_file_name(hash_name).unwrap_or_else(|| {
+                is_unknown = true;
+                let hash_name = format!("{:0>16X}", hash_name);
+                let path = Path::new("_Unknown").join(hash_name);
+                path.to_string_lossy().to_string()
+            });
+            let abs_path = output_dir.as_ref().join(rel_path);
+            if let Some(abs_dir) = abs_path.parent() {
+                output_dirs.insert(abs_dir.to_path_buf());
+            };
+            file_output.insert(hash_name, (is_unknown, abs_path));
+        });
+        output_dirs.into_iter().try_for_each(|dir| -> Result<()> {
+            std::fs::create_dir_all(dir)?;
+            Ok(())
+        })?;
+
+        entry_table
+            .into_par_iter()
+            .enumerate()
+            .try_for_each(move |(i, entry)| -> Result<()> {
+                // read compressed data
+                let decompressed_buffer = match entry.compression_method {
+                    CompressionMethod::None => {
+                        let buffer_size = entry.compressed_size.max(entry.uncompressed_size);
+                        let mut buffer = vec![0; buffer_size as usize];
+                        {
+                            let mut lock = file_stream.lock().unwrap();
+                            lock.seek(SeekFrom::Start(entry.offset as u64))?;
+                            lock.read_exact(&mut buffer)?;
+                        }
+                        buffer
+                    }
+                    CompressionMethod::Deflate => {
+                        let mut buffer = vec![0; entry.compressed_size as usize];
+                        {
+                            let mut lock = file_stream.lock().unwrap();
+                            lock.seek(SeekFrom::Start(entry.offset as u64))?;
+                            lock.read_exact(&mut buffer)?;
+                        }
+                        compression::decompress_deflate(&mut &buffer[..])?
+                    }
+                    CompressionMethod::Zstd => {
+                        let mut buffer = vec![0; entry.compressed_size as usize];
+                        {
+                            let mut lock = file_stream.lock().unwrap();
+                            lock.seek(SeekFrom::Start(entry.offset as u64))?;
+                            lock.read_exact(&mut buffer)?;
+                        }
+                        compression::decompress_zstd(&mut &buffer[..])?
+                    }
+                };
+
+                // write decompressed data
+                let (is_unknown, mut output_path) =
+                    file_output.get(&entry.hash()).cloned().unwrap();
+                // detect file extension
+                if is_unknown {
+                    if let Some(ext) = self.detect_file_ext(&mut &decompressed_buffer[..]) {
+                        let ext = ext.strip_prefix('.').unwrap_or(ext);
+                        output_path.set_extension(ext);
+                    };
+                }
+
+                let mut output_file = std::fs::File::create(output_path)?;
+                output_file.write_all(&decompressed_buffer)?;
+                if let Some(callback) = &progress_callback {
+                    callback(ProgressState::Wrote(i));
+                }
+
+                Ok(())
+            })?;
 
         Ok(())
     }

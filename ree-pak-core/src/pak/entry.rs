@@ -47,6 +47,26 @@ impl<'a> std::iter::IntoIterator for &'a EntryTable {
     }
 }
 
+// impl<'data> rayon::iter::IntoParallelRefIterator<'data> for EntryTable {
+//     type Iter = rayon::slice::Iter<'data, Entry>;
+
+//     type Item = &'data Entry;
+
+//     fn par_iter(&'data self) -> Self::Iter {
+//         self.entries.par_iter()
+//     }
+// }
+
+impl rayon::iter::IntoParallelIterator for EntryTable {
+    type Item = Entry;
+
+    type Iter = rayon::vec::IntoIter<Self::Item>;
+
+    fn into_par_iter(self) -> Self::Iter {
+        self.entries.into_par_iter()
+    }
+}
+
 /// An file entry.
 #[derive(Debug, Clone, Default)]
 pub struct Entry {
