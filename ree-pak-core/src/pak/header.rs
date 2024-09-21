@@ -1,77 +1,96 @@
-use std::io::Read;
+use crate::spec;
 
-use byteorder::{LittleEndian, ReadBytesExt};
-
-type Result<T, E = HeaderError> = std::result::Result<T, E>;
-
-#[derive(Debug, thiserror::Error)]
-pub enum HeaderError {
-    #[error("IO error: {0}")]
-    IO(#[from] std::io::Error),
-    #[error("Invalid magic: expected {expected:?}, got {got:?}")]
-    InvalidMagic {
-        expected: &'static [u8; 4],
-        got: [u8; 4],
-    },
-    #[error("Unsupported version: {major}.{minor}")]
-    UnsupportedVersion { major: i8, minor: i8 },
-    #[error("Unsupported algorithm: got code={alg_code}")]
-    UnsupportedAlgorithm { alg_code: i16 },
+#[derive(Clone, Default)]
+pub struct PakHeader {
+    magic: [u8; 4],
+    major_version: u8,
+    minor_version: u8,
+    feature: u16,
+    total_files: u32,
+    hash: u32,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct PackageHeader {
-    pub magic: [u8; 4],
-    pub major_version: i8,
-    pub minor_version: i8,
-    pub feature: i16,
-    pub total_files: u32,
-    pub hash: i32,
-}
-
-impl PackageHeader {
-    pub fn from_reader<R>(mut reader: R) -> Result<PackageHeader>
-    where
-        R: Read,
-    {
-        let mut this = PackageHeader::default();
-
-        let mut magic = [0; 4];
-        reader.read_exact(&mut magic)?;
-        this.magic = magic;
-        this.major_version = reader.read_i8()?;
-        this.minor_version = reader.read_i8()?;
-        this.feature = reader.read_i16::<LittleEndian>()?;
-        this.total_files = reader.read_u32::<LittleEndian>()?;
-        this.hash = reader.read_i32::<LittleEndian>()?;
-
-        if &this.magic != b"KPKA" {
-            return Err(HeaderError::InvalidMagic {
-                expected: b"KPKA",
-                got: magic,
-            });
-        }
-        if ![2, 4].contains(&this.major_version) || ![0, 1].contains(&this.minor_version) {
-            return Err(HeaderError::UnsupportedVersion {
-                major: this.major_version,
-                minor: this.minor_version,
-            });
-        }
-        if ![0, 8].contains(&this.feature) {
-            return Err(HeaderError::UnsupportedAlgorithm {
-                alg_code: this.feature,
-            });
-        }
-
-        Ok(this)
-    }
-
+impl PakHeader {
     pub fn entry_size(&self) -> u32 {
         match self.major_version {
             2 => 24,
             4 => 48,
             _ => panic!("Unsupported major version"),
         }
+    }
+
+    #[inline]
+    pub fn magic(&self) -> [u8; 4] {
+        self.magic
+    }
+
+    #[inline]
+    pub fn major_version(&self) -> u8 {
+        self.major_version
+    }
+
+    #[inline]
+    pub fn minor_version(&self) -> u8 {
+        self.minor_version
+    }
+
+    #[inline]
+    pub fn feature(&self) -> u16 {
+        self.feature
+    }
+
+    #[inline]
+    pub fn total_files(&self) -> u32 {
+        self.total_files
+    }
+
+    #[inline]
+    pub fn hash(&self) -> u32 {
+        self.hash
+    }
+}
+
+impl TryFrom<spec::Header> for PakHeader {
+    type Error = crate::error::PakError;
+
+    fn try_from(this: spec::Header) -> Result<Self, Self::Error> {
+        if &this.magic != b"KPKA" {
+            return Err(Self::Error::InvalidMagic {
+                expected: *b"KPKA",
+                found: this.magic,
+            });
+        }
+        if (this.major_version != 2 && this.major_version != 4) || ![0, 1].contains(&this.minor_version) {
+            return Err(Self::Error::UnsupportedVersion {
+                major: this.major_version,
+                minor: this.minor_version,
+            });
+        }
+        if ![0, 8].contains(&this.feature) {
+            return Err(Self::Error::UnsupportedAlgorithm(this.feature));
+        }
+
+        Ok(PakHeader {
+            magic: this.magic,
+            major_version: this.major_version,
+            minor_version: this.minor_version,
+            feature: this.feature,
+            total_files: this.total_files,
+            hash: this.hash,
+        })
+    }
+}
+
+impl std::fmt::Debug for PakHeader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PakHeader")
+            .field("magic", &format!("{:02x?}", self.magic))
+            .field("major_version", &self.major_version)
+            .field("minor_version", &self.minor_version)
+            .field("feature", &self.feature)
+            .field("total_files", &self.total_files)
+            .field("hash", &format!("{:08x}", self.hash))
+            .finish()
     }
 }
 
@@ -80,11 +99,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_read_header() {
-        let bytes = [
-            0x4B, 0x50, 0x4B, 0x41, 0x04, 0x00, 0x08, 0x00, 0x2D, 0x9C, 0x00, 0x00, 0x95, 0x41,
-            0x39, 0x9F,
-        ];
-        let _header = PackageHeader::from_reader(&bytes[..]).unwrap();
+    fn assert_size() {
+        assert_eq!(std::mem::size_of::<PakHeader>(), 16);
     }
 }

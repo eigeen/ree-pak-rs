@@ -8,3 +8,6 @@ ree-pak-core = { path = "../ree-pak-core" }
 clap = { version = "4.5", features = ["derive"] }
 indicatif = "0.17"
 anyhow = "1.0"
+tokio = { version = "1.39.2", features = ["macros", "rt", "rt-multi-thread"] }
+threadpool = "1.8.1"
+rayon = "1.10"

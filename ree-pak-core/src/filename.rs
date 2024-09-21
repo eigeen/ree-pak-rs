@@ -2,15 +2,7 @@ use std::{collections::HashMap, hash::BuildHasherDefault, path::Path};
 
 use nohash::NoHashHasher;
 
-use crate::hasher;
-
-type Result<T> = std::result::Result<T, FileNameError>;
-
-#[derive(Debug, thiserror::Error)]
-pub enum FileNameError {
-    #[error("IO error: {0}")]
-    IO(#[from] std::io::Error),
-}
+use crate::error::Result;
 
 #[derive(Debug, Clone, Default)]
 pub struct FileNameTable {
@@ -49,13 +41,11 @@ pub struct FileName {
 
 impl FileName {
     pub fn new(name: &str) -> Self {
-        Self {
-            name: name.to_string(),
-        }
+        Self { name: name.to_string() }
     }
 
-    pub fn get_name(&self) -> String {
-        self.name.clone()
+    pub fn get_name(&self) -> &str {
+        &self.name
     }
 
     pub fn hash_lower_case(&self) -> u32 {
@@ -66,7 +56,7 @@ impl FileName {
             .flat_map(|c| c.to_le_bytes())
             .collect();
 
-        hasher::murmur3_hash(&bytes[..]).unwrap()
+        murmur3_hash(&bytes[..]).unwrap()
     }
 
     pub fn hash_upper_case(&self) -> u32 {
@@ -77,7 +67,7 @@ impl FileName {
             .flat_map(|c| c.to_le_bytes())
             .collect();
 
-        hasher::murmur3_hash(&bytes[..]).unwrap()
+        murmur3_hash(&bytes[..]).unwrap()
     }
 
     pub fn hash_mixed(&self) -> u64 {
@@ -90,6 +80,10 @@ impl FileName {
 
         upper << 32 | lower
     }
+}
+
+pub fn murmur3_hash<R: std::io::Read>(mut reader: R) -> Result<u32> {
+    Ok(murmur3::murmur3_32(&mut reader, 0xFFFFFFFF)?)
 }
 
 #[cfg(test)]
