@@ -1,0 +1,3 @@
+[submodule "ree-pak-gui"]
+	path = ree-pak-gui
+	url = https://github.com/eigeen/ree-pak-gui.git
