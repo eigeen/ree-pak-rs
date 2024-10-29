@@ -1,5 +1,7 @@
 use std::io::Read;
 
+use crate::error::Result;
+
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Header {
@@ -14,12 +16,12 @@ pub struct Header {
 impl Header {
     const SIZE: usize = std::mem::size_of::<Self>();
 
-    pub fn from_reader<R>(reader: &mut R) -> Self
+    pub fn from_reader<R>(reader: &mut R) -> Result<Self>
     where
         R: Read,
     {
         let mut buf = [0u8; Self::SIZE];
-        reader.read_exact(&mut buf).unwrap();
-        unsafe { std::mem::transmute(buf) }
+        reader.read_exact(&mut buf)?;
+        unsafe { Ok(std::mem::transmute::<[u8; Self::SIZE], Self>(buf)) }
     }
 }

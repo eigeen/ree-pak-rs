@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "ree-pak-core",
     "ree-pak-cli",
+    "ree-pak-gui/src-tauri",
 ]
 
 [workspace.dependencies]

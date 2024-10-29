@@ -11,7 +11,7 @@ where
     R: Read,
 {
     // read header
-    let spec_header = spec::Header::from_reader(reader);
+    let spec_header = spec::Header::from_reader(reader)?;
     let header = PakHeader::try_from(spec_header)?;
 
     // read entries

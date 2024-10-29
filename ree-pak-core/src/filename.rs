@@ -1,6 +1,7 @@
-use std::{collections::HashMap, hash::BuildHasherDefault, path::Path};
+use std::{collections::HashMap, hash::BuildHasherDefault, path::Path, sync::Mutex};
 
 use nohash::NoHashHasher;
+use rayon::iter::{ParallelBridge, ParallelIterator};
 
 use crate::error::Result;
 
@@ -15,12 +16,14 @@ impl FileNameTable {
         P: AsRef<Path>,
     {
         let file_names = std::fs::read_to_string(path.as_ref())?;
-        let mut this = Self::default();
-        for line in file_names.lines() {
-            this.push_str(line);
-        }
+        let this = Mutex::new(Self::default());
+        file_names.lines().par_bridge().for_each(|line| {
+            let file_name = FileName::new(line);
+            let hash = file_name.hash_mixed();
+            this.lock().unwrap().file_names.insert(hash, file_name);
+        });
 
-        Ok(this)
+        Ok(this.into_inner().unwrap())
     }
 
     pub fn push_str(&mut self, file_name: &str) {

@@ -9,6 +9,7 @@ pub use entry::PakEntry;
 pub use header::PakHeader;
 
 /// Pak Archive, stores the header and entries.
+#[derive(Clone)]
 pub struct PakArchive {
     header: PakHeader,
     entries: Vec<PakEntry>,
