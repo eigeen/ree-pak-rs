@@ -44,7 +44,7 @@ fn read_entries_v1<R>(reader: &mut R, total_files: u32) -> Result<Vec<PakEntry>>
 where
     R: Read,
 {
-    let mut entries = Vec::with_capacity(total_files as usize * spec::EntryV1::SIZE);
+    let mut entries = Vec::with_capacity(total_files as usize);
     for _ in 0..total_files {
         let spec_entry = spec::EntryV1::from_reader(reader)?;
         let entry = PakEntry::from(spec_entry);
@@ -58,7 +58,7 @@ fn read_entries_v2<R>(reader: &mut R, total_files: u32) -> Result<Vec<PakEntry>>
 where
     R: Read,
 {
-    let mut entries = Vec::with_capacity(total_files as usize * spec::EntryV2::SIZE);
+    let mut entries = Vec::with_capacity(total_files as usize);
     for _ in 0..total_files {
         let spec_entry = spec::EntryV2::from_reader(reader)?;
         let entry = PakEntry::from(spec_entry);
