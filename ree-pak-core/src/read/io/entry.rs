@@ -27,7 +27,7 @@ impl PakEntryReader<Cursor<Vec<u8>>> {
         R1: Read + Seek,
     {
         reader.seek(SeekFrom::Start(entry.offset()))?;
-        let mut data = vec![0; entry.real_compressed_size() as usize];
+        let mut data = vec![0; entry.compressed_size() as usize];
         reader.read_exact(&mut data)?;
         let owned_reader = Cursor::new(data);
 

@@ -14,14 +14,6 @@ pub struct PakEntry {
 }
 
 impl PakEntry {
-    pub fn real_compressed_size(&self) -> u64 {
-        if self.compression_method == CompressionMethod::None {
-            self.compressed_size.max(self.uncompressed_size)
-        } else {
-            self.compressed_size
-        }
-    }
-
     pub fn hash(&self) -> u64 {
         let upper = self.hash_name_upper as u64;
         let lower = self.hash_name_lower as u64;
