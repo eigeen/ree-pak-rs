@@ -1,6 +1,6 @@
 use std::{
     fs::{File, OpenOptions},
-    io::BufReader,
+    io::{BufReader, Write},
     path::{Path, PathBuf},
     sync::Mutex,
     time::Duration,
@@ -78,6 +78,9 @@ fn process_entry(
         std::fs::create_dir_all(filedir)?;
     }
 
+    let mut data = vec![];
+    std::io::copy(&mut entry_reader, &mut data)?;
+
     let mut file = if r#override {
         OpenOptions::new()
             .create(true)
@@ -87,7 +90,7 @@ fn process_entry(
     } else {
         OpenOptions::new().create_new(true).write(true).open(&filepath)?
     };
-    std::io::copy(&mut entry_reader, &mut file)?;
+    file.write_all(&data)?;
 
     // guess unknown file extension
     if filepath.extension().is_none() {
