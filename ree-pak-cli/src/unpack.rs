@@ -9,7 +9,7 @@ use std::{
 use anyhow::Context;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use ree_pak_core::{filename::FileNameTable, pak::PakEntry, read::io::archive::PakArchiveReader};
+use ree_pak_core::{filename::FileNameTable, pak::PakEntry, read::archive::PakArchiveReader};
 
 use crate::UnpackCommand;
 

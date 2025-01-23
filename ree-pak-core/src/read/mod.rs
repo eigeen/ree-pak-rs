@@ -1,10 +1,22 @@
-pub mod io;
-
 use std::io::{Cursor, Read};
 
 use crate::error::Result;
 use crate::pak::{self, PakArchive, PakEntry, PakHeader};
 use crate::spec;
+
+pub mod archive;
+pub mod compressed;
+pub mod encrypted;
+pub mod entry;
+pub mod extension;
+
+#[derive(Debug, thiserror::Error)]
+pub enum PakReaderError {
+    #[error("Failed to read raw data: {0}")]
+    RawData(std::io::Error),
+    #[error("Invalid compression type: {0}")]
+    InvalidCompressionType(u8),
+}
 
 pub fn read_archive<R>(reader: &mut R) -> Result<PakArchive>
 where

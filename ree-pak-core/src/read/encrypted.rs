@@ -37,6 +37,7 @@ where
         self.has_decrypted = true;
         let decrypted_data = pak::decrypt_resource_data(&mut self.reader)?;
         self.buffer.extend_from_slice(&decrypted_data);
+
         Ok(())
     }
 }
@@ -56,9 +57,7 @@ where
 
         let len = std::cmp::min(buf.len(), self.buffer.len());
         if len == 0 {
-            println!("encrypted reader: buffer empty");
             return Ok(0);
-            // return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Unexpected EOF"));
         }
 
         buf[..len].copy_from_slice(&self.buffer[..len]);

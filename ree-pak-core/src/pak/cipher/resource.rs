@@ -38,10 +38,16 @@ where
         let r#mod = key.modpow(&EXPONENT_INT, &MODULUS_INT);
         let result = data / r#mod;
 
-        decrypted_data.extend_from_slice(&result.to_u64_digits().first().unwrap_or(&0).to_le_bytes());
+        let digits = result.to_u64_digits().first().cloned();
+        if let Some(digits) = digits {
+            decrypted_data.extend_from_slice(&digits.to_le_bytes());
+        }
     }
 
-    decrypted_data.push(0);
+    // remove padding zeros
+    while decrypted_data.last() == Some(&0) {
+        decrypted_data.pop();
+    }
 
     Ok(decrypted_data)
 }
