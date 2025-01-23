@@ -1,6 +1,6 @@
 use crate::spec;
 
-use super::compression::CompressionMethod;
+use super::flag::{CompressionType, EncryptionType};
 
 #[derive(Clone, Default)]
 pub struct PakEntry {
@@ -9,7 +9,8 @@ pub struct PakEntry {
     offset: u64,
     compressed_size: u64,
     uncompressed_size: u64,
-    compression_method: CompressionMethod,
+    compression_type: CompressionType,
+    encryption_type: EncryptionType,
     checksum: u64,
 }
 
@@ -21,27 +22,26 @@ impl PakEntry {
         upper << 32 | lower
     }
 
-    #[inline]
     pub fn offset(&self) -> u64 {
         self.offset
     }
 
-    #[inline]
     pub fn compressed_size(&self) -> u64 {
         self.compressed_size
     }
 
-    #[inline]
     pub fn uncompressed_size(&self) -> u64 {
         self.uncompressed_size
     }
 
-    #[inline]
-    pub fn compression_method(&self) -> CompressionMethod {
-        self.compression_method
+    pub fn compression_type(&self) -> CompressionType {
+        self.compression_type
     }
 
-    #[inline]
+    pub fn encryption_type(&self) -> EncryptionType {
+        self.encryption_type
+    }
+
     pub fn checksum(&self) -> u64 {
         self.checksum
     }
@@ -67,7 +67,8 @@ impl From<spec::EntryV2> for PakEntry {
             offset: value.offset,
             compressed_size: value.compressed_size,
             uncompressed_size: value.uncompressed_size,
-            compression_method: value.compression_method.into(),
+            compression_type: CompressionType::from_bits_truncate((value.attributes & 0xF) as u8),
+            encryption_type: (((value.attributes & 0x00FF0000) >> 16) as u32).into(),
             checksum: value.checksum,
         }
     }
@@ -81,7 +82,8 @@ impl std::fmt::Debug for PakEntry {
             .field("offset", &self.offset)
             .field("compressed_size", &self.compressed_size)
             .field("uncompressed_size", &self.uncompressed_size)
-            .field("compression_method", &self.compression_method)
+            .field("compression_type", &self.compression_type)
+            .field("encryption_type", &self.encryption_type)
             .field("checksum", &format!("{:16x}", self.checksum))
             .finish()
     }

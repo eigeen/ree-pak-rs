@@ -10,6 +10,7 @@ murmur3 = "0.5"
 nohash = "0.2"
 num = { version = "0.4", features = ["num-bigint"] }
 rustc-hash = "2.0"
-thiserror = "1.0"
+thiserror = "2.0"
 zstd = "0.13"
 rayon = "1.10"
+bitflags = "2.8.0"

@@ -1,5 +1,7 @@
 use crate::spec;
 
+const HEADER_MAGIC: &[u8; 4] = b"KPKA";
+
 #[derive(Clone, Default)]
 pub struct PakHeader {
     magic: [u8; 4],
@@ -54,9 +56,9 @@ impl TryFrom<spec::Header> for PakHeader {
     type Error = crate::error::PakError;
 
     fn try_from(this: spec::Header) -> Result<Self, Self::Error> {
-        if &this.magic != b"KPKA" {
+        if &this.magic != HEADER_MAGIC {
             return Err(Self::Error::InvalidMagic {
-                expected: *b"KPKA",
+                expected: *HEADER_MAGIC,
                 found: this.magic,
             });
         }

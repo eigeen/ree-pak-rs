@@ -57,7 +57,7 @@ pub enum OwnedPakArchive<'a> {
     Borrowed(&'a PakArchive),
 }
 
-impl<'a> OwnedPakArchive<'a> {
+impl OwnedPakArchive<'_> {
     pub fn inner(&self) -> &PakArchive {
         match self {
             OwnedPakArchive::Owned(inner) => inner,

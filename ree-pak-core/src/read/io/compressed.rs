@@ -1,7 +1,7 @@
 use std::io::{BufRead, Read};
 
 use crate::error::Result;
-use crate::pak::CompressionMethod;
+use crate::pak::CompressionType;
 
 /// Read a compressed file.
 pub enum CompressedReader<R> {
@@ -14,12 +14,16 @@ impl<R> CompressedReader<R>
 where
     R: BufRead,
 {
-    pub fn new(reader: R, compression: CompressionMethod) -> Result<Self> {
-        Ok(match compression {
-            CompressionMethod::None => Self::Store(reader),
-            CompressionMethod::Deflate => Self::Deflate(flate2::bufread::DeflateDecoder::new(reader)),
-            CompressionMethod::Zstd => Self::Zstd(zstd::stream::Decoder::with_buffer(reader)?),
-        })
+    pub fn new(reader: R, compression: CompressionType) -> Result<Self> {
+        if compression.contains(CompressionType::DEFLATE) {
+            Ok(Self::Deflate(flate2::bufread::DeflateDecoder::new(reader)))
+        } else if compression.contains(CompressionType::ZSTD) {
+            Ok(Self::Zstd(zstd::stream::Decoder::with_buffer(reader)?))
+        } else if compression.contains(CompressionType::NONE) {
+            Ok(Self::Store(reader))
+        } else {
+            unreachable!("Invalid compression type")
+        }
     }
 }
 

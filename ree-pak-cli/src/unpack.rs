@@ -187,7 +187,13 @@ fn unpack_parallel_error_continue(cmd: &UnpackCommand) -> anyhow::Result<()> {
     bar.finish();
 
     if !results.is_empty() {
-        println!("Done with {} errors", results.len());
+        let errors = results.iter().filter(|r| r.is_err()).collect::<Vec<_>>();
+        println!("Done with {} errors", errors.len());
+        if errors.len() < 30 {
+            println!("Errors: {:?}", errors);
+        } else {
+            println!("Too many errors to display.");
+        }
     } else {
         println!("Done.");
     }

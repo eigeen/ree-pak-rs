@@ -32,7 +32,7 @@ pub struct EntryV2 {
     pub offset: u64,
     pub compressed_size: u64,
     pub uncompressed_size: u64,
-    pub compression_method: i64,
+    pub attributes: i64,
     pub checksum: u64,
 }
 

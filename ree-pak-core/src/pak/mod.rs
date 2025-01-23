@@ -1,12 +1,12 @@
 mod cipher;
-mod compression;
 mod entry;
+mod flag;
 mod header;
 
-pub(crate) use cipher::decrypt_data;
-pub use compression::CompressionMethod;
-pub use entry::PakEntry;
-pub use header::PakHeader;
+pub(crate) use cipher::*;
+pub use entry::*;
+pub use flag::*;
+pub use header::*;
 
 /// Pak Archive, stores the header and entries.
 #[derive(Clone)]
