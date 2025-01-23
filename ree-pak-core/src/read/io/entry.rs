@@ -4,11 +4,12 @@ use crate::error::Result;
 use crate::pak::PakEntry;
 
 use super::compressed::CompressedReader;
+use super::encrypted::EncryptedReader;
 use super::extension::ExtensionReader;
 
-/// Read a pak entry file.
+/// Read a pak entry.
 pub struct PakEntryReader<R> {
-    reader: ExtensionReader<CompressedReader<R>>,
+    reader: ExtensionReader<CompressedReader<EncryptedReader<R>>>,
 }
 
 impl<R> Read for PakEntryReader<R>
@@ -26,13 +27,16 @@ impl PakEntryReader<Cursor<Vec<u8>>> {
     where
         R1: Read + Seek,
     {
+        let data_len = entry.compressed_size() as usize;
+
         reader.seek(SeekFrom::Start(entry.offset()))?;
-        let mut data = vec![0; entry.compressed_size() as usize];
+        let mut data = vec![0; data_len];
         reader.read_exact(&mut data)?;
         let owned_reader = Cursor::new(data);
 
-        let compression = entry.compression_method();
-        let r = ExtensionReader::new(CompressedReader::new(owned_reader, compression)?);
+        let r = EncryptedReader::new(owned_reader, entry.encryption_type());
+        let r = CompressedReader::new(r, entry.compression_type())?;
+        let r = ExtensionReader::new(r);
         Ok(Self { reader: r })
     }
 }
@@ -42,8 +46,9 @@ where
     R: BufRead,
 {
     pub fn from_part_reader(part_reader: R, entry: &PakEntry) -> Result<Self> {
-        let compression = entry.compression_method();
-        let r = ExtensionReader::new(CompressedReader::new(part_reader, compression)?);
+        let r = EncryptedReader::new(part_reader, entry.encryption_type());
+        let r = CompressedReader::new(r, entry.compression_type())?;
+        let r = ExtensionReader::new(r);
         Ok(Self { reader: r })
     }
 

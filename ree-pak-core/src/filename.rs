@@ -18,7 +18,7 @@ impl FileNameTable {
         let file_names = std::fs::read_to_string(path.as_ref())?;
         let this = Mutex::new(Self::default());
         file_names.lines().par_bridge().for_each(|line| {
-            let file_name = FileName::new(line);
+            let file_name = FileName::new(&line.replace('\\', "/"));
             let hash = file_name.hash_mixed();
             this.lock().unwrap().file_names.insert(hash, file_name);
         });

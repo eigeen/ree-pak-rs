@@ -21,7 +21,7 @@ where
     if header.feature() == 8 {
         let mut raw_key = [0; 128];
         reader.read_exact(&mut raw_key)?;
-        entry_table_bytes = pak::decrypt_data(&entry_table_bytes, &raw_key);
+        entry_table_bytes = pak::decrypt_pak_data(&entry_table_bytes, &raw_key);
     }
     // parse entries
     let entries = read_entries(&mut Cursor::new(&entry_table_bytes), &header)?;
