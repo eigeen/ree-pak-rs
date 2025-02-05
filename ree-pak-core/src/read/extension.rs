@@ -1,5 +1,7 @@
 use std::io::Read;
 
+use super::PakReaderError;
+
 /// Reads the first 8 bytes to determine the file extension.
 pub struct ExtensionReader<R> {
     reader: R,
@@ -12,26 +14,9 @@ where
     R: Read,
 {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if self.magic_read_length < 8 {
-            let bytes_to_read = 8 - self.magic_read_length;
-            let bytes_read = self
-                .reader
-                .read(&mut self.magic_bytes[self.magic_read_length..bytes_to_read])?;
-            self.magic_read_length += bytes_read;
-
-            let bytes_to_copy = self.magic_read_length.min(buf.len());
-            buf[..bytes_to_copy].copy_from_slice(&self.magic_bytes[..bytes_to_copy]);
-
-            if bytes_to_copy == 8 {
-                let remaining = &mut buf[bytes_to_copy..];
-                let additional_read = self.reader.read(remaining)?;
-                return Ok(bytes_to_copy + additional_read);
-            }
-
-            return Ok(bytes_to_copy);
-        }
-
-        self.reader.read(buf)
+        self.read_inner(buf)
+            .map_err(PakReaderError::Extension)
+            .map_err(|e| e.into_io_error())
     }
 }
 
@@ -61,6 +46,32 @@ where
 
     pub fn magic_upper(&self) -> u32 {
         u32::from_le_bytes(self.magic_bytes[4..8].try_into().unwrap())
+    }
+
+    pub fn read_inner(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.magic_read_length < 8 {
+            let bytes_to_read = 8 - self.magic_read_length;
+            let bytes_read = self
+                .reader
+                .read(&mut self.magic_bytes[self.magic_read_length..self.magic_read_length + bytes_to_read])?;
+            if bytes_read == 0 {
+                return Ok(0);
+            }
+            self.magic_read_length += bytes_read;
+
+            let bytes_to_copy = self.magic_read_length.min(buf.len());
+            buf[..bytes_to_copy].copy_from_slice(&self.magic_bytes[..bytes_to_copy]);
+
+            if bytes_to_copy == 8 {
+                let remaining = &mut buf[bytes_to_copy..];
+                let additional_read = self.reader.read(remaining)?;
+                return Ok(bytes_to_copy + additional_read);
+            }
+
+            return Ok(bytes_to_copy);
+        }
+
+        self.reader.read(buf)
     }
 
     pub fn determine_extension(&self) -> Option<&'static str> {

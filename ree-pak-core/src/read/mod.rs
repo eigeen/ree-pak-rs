@@ -1,7 +1,7 @@
 use std::io::{Cursor, Read};
 
 use crate::error::Result;
-use crate::pak::{self, PakArchive, PakEntry, PakHeader};
+use crate::pak::{self, CompressionType, PakArchive, PakEntry, PakHeader};
 use crate::spec;
 
 pub mod archive;
@@ -14,8 +14,21 @@ pub mod extension;
 pub enum PakReaderError {
     #[error("Failed to read raw data: {0}")]
     RawData(std::io::Error),
+    #[error("Failed to decompress from {compression:?}: {source}")]
+    Decompression {
+        compression: CompressionType,
+        source: std::io::Error,
+    },
     #[error("Invalid compression type: {0}")]
     InvalidCompressionType(u8),
+    #[error("Failed to determine file extension: {0}")]
+    Extension(std::io::Error),
+}
+
+impl PakReaderError {
+    pub fn into_io_error(self) -> std::io::Error {
+        std::io::Error::new(std::io::ErrorKind::Other, self.to_string())
+    }
 }
 
 pub fn read_archive<R>(reader: &mut R) -> Result<PakArchive>

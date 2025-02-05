@@ -3,11 +3,23 @@ use std::io::{BufRead, Read};
 use crate::error::Result;
 use crate::pak::CompressionType;
 
+use super::PakReaderError;
+
 /// Read a compressed file.
 pub enum CompressedReader<R> {
     Store(R),
     Deflate(flate2::bufread::DeflateDecoder<R>),
     Zstd(zstd::Decoder<'static, R>),
+}
+
+impl<R> CompressedReader<R> {
+    pub fn compression_type(&self) -> CompressionType {
+        match self {
+            CompressedReader::Store(_) => CompressionType::NONE,
+            CompressedReader::Deflate(_) => CompressionType::DEFLATE,
+            CompressedReader::Zstd(_) => CompressionType::ZSTD,
+        }
+    }
 }
 
 impl<R> CompressedReader<R>
@@ -37,5 +49,10 @@ where
             CompressedReader::Deflate(inner) => inner.read(buf),
             CompressedReader::Zstd(inner) => inner.read(buf),
         }
+        .map_err(|e| PakReaderError::Decompression {
+            compression: self.compression_type(),
+            source: e,
+        })
+        .map_err(|e| e.into_io_error())
     }
 }

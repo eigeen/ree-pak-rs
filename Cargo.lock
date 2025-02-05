@@ -114,7 +114,7 @@ checksum = "34ac096ce696dc2fcabef30516bb13c0a68a11d30131d3df6f04711467681b04"
 
 [[package]]
 name = "app"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "nohash",
@@ -3065,7 +3065,7 @@ dependencies = [
 
 [[package]]
 name = "ree-pak-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -3078,7 +3078,7 @@ dependencies = [
 
 [[package]]
 name = "ree-pak-core"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "bitflags 2.8.0",
  "byteorder",

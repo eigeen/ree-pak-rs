@@ -137,7 +137,12 @@ fn unpack_parallel_error_terminate(cmd: &UnpackCommand) -> anyhow::Result<()> {
                 cmd.r#override,
             );
             if let Err(e) = &result {
-                println!("Error processing entry: {}\nEntry: {:?}", e, entry);
+                bar.println(format!(
+                    "Error processing entry: {}. Path: {:?}\nEntry: {:?}",
+                    e,
+                    file_name_table.get_file_name(entry.hash()).unwrap(),
+                    entry
+                ))
             };
             result
         })?;
@@ -181,7 +186,12 @@ fn unpack_parallel_error_continue(cmd: &UnpackCommand) -> anyhow::Result<()> {
                 cmd.r#override,
             );
             if let Err(e) = &result {
-                bar.println(format!("Error processing entry: {}\nEntry: {:?}", e, entry));
+                bar.println(format!(
+                    "Error processing entry: {:#}. Path: {:?}\nEntry: {:?}",
+                    e,
+                    file_name_table.get_file_name(entry.hash()).unwrap(),
+                    entry
+                ));
             };
             result
         })
