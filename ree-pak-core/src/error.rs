@@ -1,5 +1,7 @@
 pub type Result<T> = std::result::Result<T, PakError>;
 
+type AnyError = Box<dyn std::error::Error + Send + Sync>;
+
 #[derive(Debug, thiserror::Error)]
 pub enum PakError {
     #[error("Upstream IO Error: {0}")]
@@ -11,6 +13,8 @@ pub enum PakError {
     UnsupportedVersion { major: u8, minor: u8 },
     #[error("Unsupported algorithm: {0:X}")]
     UnsupportedAlgorithm(u16),
+    #[error("Invalid file list: {0}")]
+    InvalidFileList(AnyError),
 
     #[error("Entry index out of bounds")]
     EntryIndexOutOfBounds,

@@ -40,17 +40,31 @@ fn output_path<P: AsRef<Path>>(output: &Option<String>, input: P) -> PathBuf {
 }
 
 fn load_filename_table(project_name: &str) -> anyhow::Result<FileNameTable> {
-    let path_str_relative = format!("assets/filelist/{}.list", project_name);
-    let path_relative = Path::new(&path_str_relative);
-    let path_abs = std::env::current_exe()?.parent().unwrap().join(path_relative);
-    if !path_abs.exists() || !path_abs.is_file() {
-        anyhow::bail!(
-            "Project file `{}` not found, check your project name.",
-            path_abs.display()
-        );
+    let parent_paths = [std::env::current_dir()?, std::env::current_exe()?];
+    let rel_paths = [
+        format!("assets/filelist/{}.list", project_name),
+        format!("assets/filelist/{}.list.zst", project_name),
+    ];
+
+    let mut path_abs = None;
+    for parent_path in &parent_paths {
+        for rel_path in &rel_paths {
+            let p = parent_path.join(rel_path);
+            if p.exists() && p.is_file() {
+                path_abs = Some(p);
+                break;
+            }
+        }
     }
 
-    FileNameTable::from_list_file(path_abs).context("Failed to load file name table")
+    if let Some(path_abs) = path_abs {
+        FileNameTable::from_list_file(path_abs).context("Failed to load file name table")
+    } else {
+        anyhow::bail!(
+            "Project file `{}` not found in assets/filelist, check your project name.",
+            project_name
+        );
+    }
 }
 
 fn process_entry(

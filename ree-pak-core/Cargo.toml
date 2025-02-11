@@ -1,18 +1,20 @@
 [package]
 name = "ree-pak-core"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 
 [dependencies]
-byteorder = "1.5"
-murmur3 = "0.5"
-nohash = "0.2"
+byteorder.workspace = true
+murmur3.workspace = true
+nohash.workspace = true
+rustc-hash.workspace = true
+thiserror.workspace = true
+rayon.workspace = true
+bitflags.workspace = true
+
 num = { version = "0.4", features = ["num-bigint"] }
-rustc-hash = "2.0"
-thiserror = "2.0"
-rayon = "1.10"
-bitflags = "2.8.0"
 
 # compression
-zstd = "0.13"
+zstd.workspace = true
+parking_lot.workspace = true
 flate2 = "1.0"
