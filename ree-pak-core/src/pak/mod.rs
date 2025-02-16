@@ -20,12 +20,10 @@ impl PakArchive {
         PakArchive { header, entries }
     }
 
-    #[inline]
     pub fn header(&self) -> &PakHeader {
         &self.header
     }
 
-    #[inline]
     pub fn entries(&self) -> &[PakEntry] {
         &self.entries
     }

@@ -13,6 +13,8 @@ struct Cli {
 enum Command {
     /// Unpack a PAK file
     Unpack(UnpackCommand),
+    /// Dump PAK information
+    DumpInfo(DumpInfoCommand),
 }
 
 #[derive(Debug, Args)]
@@ -34,10 +36,27 @@ struct UnpackCommand {
     r#override: bool,
 }
 
+#[derive(Debug, Args)]
+struct DumpInfoCommand {
+    /// Game project name, e.g. "MHRS_PC_Demo"
+    #[clap(short, long)]
+    project: String,
+    /// Input PAK file path
+    #[clap(short, long)]
+    input: String,
+    /// Output file path
+    #[clap(short, long)]
+    output: Option<String>,
+    /// Override existing files
+    #[clap(long, default_value = "false")]
+    r#override: bool,
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
         Command::Unpack(cmd) => unpack::unpack_parallel(cmd),
+        Command::DumpInfo(cmd) => unpack::dump_info(cmd),
     }
 }

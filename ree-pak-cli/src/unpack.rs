@@ -10,8 +10,21 @@ use anyhow::Context;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use ree_pak_core::{filename::FileNameTable, pak::PakEntry, read::archive::PakArchiveReader};
+use serde::Serialize;
 
-use crate::UnpackCommand;
+use crate::{DumpInfoCommand, UnpackCommand};
+
+#[derive(Debug, Serialize)]
+struct PakInfo {
+    header: ree_pak_core::pak::PakHeader,
+    entries: Vec<EntryWithPath>,
+}
+
+#[derive(Debug, Serialize)]
+struct EntryWithPath {
+    entry: ree_pak_core::pak::PakEntry,
+    path: Option<String>,
+}
 
 pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
     if cmd.ignore_error {
@@ -19,6 +32,43 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
     } else {
         unpack_parallel_error_terminate(cmd)
     }
+}
+
+pub fn dump_info(cmd: &DumpInfoCommand) -> anyhow::Result<()> {
+    let filename_table = load_filename_table(&cmd.project)?;
+
+    let file = std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
+    let mut reader = std::io::BufReader::new(file);
+    let archive = ree_pak_core::read::read_archive(&mut reader)?;
+
+    let info = PakInfo {
+        header: archive.header().clone(),
+        entries: archive
+            .entries()
+            .iter()
+            .map(|entry| {
+                let path = filename_table
+                    .get_file_name(entry.hash())
+                    .map(|fname| fname.get_name().to_string());
+                EntryWithPath {
+                    entry: entry.clone(),
+                    path,
+                }
+            })
+            .collect(),
+    };
+    let json = serde_json::to_string_pretty(&info)?;
+
+    let output_path = if let Some(output) = &cmd.output {
+        output.into()
+    } else {
+        let mut path = PathBuf::from(&cmd.input);
+        path.set_extension("json");
+        path
+    };
+    std::fs::write(output_path, json)?;
+
+    Ok(())
 }
 
 fn output_path<P: AsRef<Path>>(output: &Option<String>, input: P) -> PathBuf {

@@ -12,3 +12,5 @@ anyhow.workspace = true
 tokio = { version = "1.39.2", features = ["macros", "rt", "rt-multi-thread"] }
 threadpool = "1.8.1"
 rayon.workspace = true
+serde_json.workspace = true
+serde = { workspace = true, features = ["derive"] }

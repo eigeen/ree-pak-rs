@@ -3233,6 +3233,8 @@ dependencies = [
  "indicatif",
  "rayon",
  "ree-pak-core",
+ "serde",
+ "serde_json",
  "threadpool",
  "tokio",
 ]
@@ -3250,6 +3252,7 @@ dependencies = [
  "parking_lot",
  "rayon",
  "rustc-hash",
+ "serde",
  "thiserror 2.0.11",
  "zstd",
 ]

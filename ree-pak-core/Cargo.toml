@@ -18,3 +18,4 @@ num = { version = "0.4", features = ["num-bigint"] }
 zstd.workspace = true
 parking_lot.workspace = true
 flate2 = "1.0"
+serde = { workspace = true, features = ["derive"] }

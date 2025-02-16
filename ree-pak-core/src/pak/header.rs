@@ -1,14 +1,18 @@
+use serde::{Deserialize, Serialize};
+
+use crate::serde_util::serialize_u32_hex;
 use crate::spec;
 
 const HEADER_MAGIC: &[u8; 4] = b"KPKA";
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct PakHeader {
     magic: [u8; 4],
     major_version: u8,
     minor_version: u8,
     feature: u16,
     total_files: u32,
+    #[serde(serialize_with = "serialize_u32_hex")]
     hash: u32,
 }
 
