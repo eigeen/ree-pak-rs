@@ -35,7 +35,7 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
 }
 
 pub fn dump_info(cmd: &DumpInfoCommand) -> anyhow::Result<()> {
-    let filename_table = load_filename_table(&cmd.project)?;
+    let filename_table = load_filename_table(&cmd.project, &cmd.list_file)?;
 
     let file = std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
     let mut reader = std::io::BufReader::new(file);
@@ -89,7 +89,7 @@ fn output_path<P: AsRef<Path>>(output: &Option<String>, input: P) -> PathBuf {
     }
 }
 
-fn load_filename_table(project_name: &str) -> anyhow::Result<FileNameTable> {
+fn load_filename_table(project_name: &str, list_file: &Option<String>) -> anyhow::Result<FileNameTable> {
     let parent_paths = [std::env::current_dir()?, std::env::current_exe()?];
     let rel_paths = [
         format!("assets/filelist/{}.list", project_name),
@@ -97,12 +97,17 @@ fn load_filename_table(project_name: &str) -> anyhow::Result<FileNameTable> {
     ];
 
     let mut path_abs = None;
-    for parent_path in &parent_paths {
-        for rel_path in &rel_paths {
-            let p = parent_path.join(rel_path);
-            if p.exists() && p.is_file() {
-                path_abs = Some(p);
-                break;
+    if list_file.is_some() {
+        let path_buf = list_file.as_ref().unwrap().into();
+        path_abs = Some(path_buf);
+    } else {
+        for parent_path in &parent_paths {
+            for rel_path in &rel_paths {
+                let p = parent_path.join(rel_path);
+                if p.exists() && p.is_file() {
+                    path_abs = Some(p);
+                    break;
+                }
             }
         }
     }
@@ -124,17 +129,24 @@ fn process_entry(
     archive_reader: &Mutex<PakArchiveReader<BufReader<File>>>,
     bar: &ProgressBar,
     r#override: bool,
+    r#skip_unknown: bool,
 ) -> anyhow::Result<()> {
     let mut r = archive_reader.lock().unwrap();
     let mut entry_reader = (*r).owned_entry_reader(entry.clone())?;
     drop(r);
 
     // output file path
-    let file_relative_path: PathBuf = file_name_table
+    let fount_path = file_name_table
         .get_file_name(entry.hash())
-        .map(|fname| fname.get_name().to_string())
-        .unwrap_or_else(|| format!("_Unknown/{:08X}", entry.hash()))
-        .into();
+        .map(|fname| fname.get_name().to_string());
+    let file_relative_path: PathBuf;
+    if fount_path == None && skip_unknown {
+        return Ok(());
+    } else {
+        file_relative_path = fount_path
+            .unwrap_or_else(|| format!("_Unknown/{:08X}", entry.hash()))
+            .into();
+    }
     let filepath = output_path.join(file_relative_path);
     let filedir = filepath.parent().unwrap();
 
@@ -170,7 +182,7 @@ fn process_entry(
 
 fn unpack_parallel_error_terminate(cmd: &UnpackCommand) -> anyhow::Result<()> {
     // load project file name table
-    let file_name_table = load_filename_table(&cmd.project)?;
+    let file_name_table = load_filename_table(&cmd.project, &cmd.list_file)?;
 
     // load PAK file
     let file = std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
@@ -199,6 +211,7 @@ fn unpack_parallel_error_terminate(cmd: &UnpackCommand) -> anyhow::Result<()> {
                 &archive_reader,
                 &bar,
                 cmd.r#override,
+                cmd.r#skip_unknown,
             );
             if let Err(e) = &result {
                 bar.println(format!(
@@ -219,7 +232,7 @@ fn unpack_parallel_error_terminate(cmd: &UnpackCommand) -> anyhow::Result<()> {
 
 fn unpack_parallel_error_continue(cmd: &UnpackCommand) -> anyhow::Result<()> {
     // load project file name table
-    let file_name_table = load_filename_table(&cmd.project)?;
+    let file_name_table = load_filename_table(&cmd.project, &cmd.list_file)?;
 
     // load PAK file
     let file = std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
@@ -248,6 +261,7 @@ fn unpack_parallel_error_continue(cmd: &UnpackCommand) -> anyhow::Result<()> {
                 &archive_reader,
                 &bar,
                 cmd.r#override,
+                cmd.r#skip_unknown,
             );
             if let Err(e) = &result {
                 bar.println(format!(

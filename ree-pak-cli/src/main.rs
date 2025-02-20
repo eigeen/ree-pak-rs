@@ -28,12 +28,18 @@ struct UnpackCommand {
     /// Output directory path
     #[clap(short, long)]
     output: Option<String>,
+    /// List file to use; overrides the project arg
+    #[clap(short, long)]
+    list_file: Option<String>,
     /// Ignore errors during unpacking files
     #[clap(long, default_value = "false")]
     ignore_error: bool,
     /// Override existing files
     #[clap(long, default_value = "false")]
     r#override: bool,
+    /// Skip files with an unknown path while unpacking
+    #[clap(long, default_value = "false")]
+    r#skip_unknown: bool,
 }
 
 #[derive(Debug, Args)]
@@ -47,6 +53,9 @@ struct DumpInfoCommand {
     /// Output file path
     #[clap(short, long)]
     output: Option<String>,
+    /// List file to use; overrides the project arg
+    #[clap(short, long)]
+    list_file: Option<String>,
     /// Override existing files
     #[clap(long, default_value = "false")]
     r#override: bool,
