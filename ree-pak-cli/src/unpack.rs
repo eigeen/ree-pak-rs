@@ -35,7 +35,7 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
 }
 
 pub fn dump_info(cmd: &DumpInfoCommand) -> anyhow::Result<()> {
-    let filename_table = load_filename_table(&cmd.project, &cmd.list_file)?;
+    let filename_table = load_filename_table(&cmd.project)?;
 
     let file = std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
     let mut reader = std::io::BufReader::new(file);
@@ -89,25 +89,27 @@ fn output_path<P: AsRef<Path>>(output: &Option<String>, input: P) -> PathBuf {
     }
 }
 
-fn load_filename_table(project_name: &str, list_file: &Option<String>) -> anyhow::Result<FileNameTable> {
+fn load_filename_table(project_name_or_path: &str) -> anyhow::Result<FileNameTable> {
+    // try to load as file path
+    let path = Path::new(project_name_or_path);
+    if path.exists() {
+        let path_abs = path.canonicalize().context("Failed to get absolute path")?;
+        return FileNameTable::from_list_file(path_abs).context("Failed to load file name table");
+    }
+
     let parent_paths = [std::env::current_dir()?, std::env::current_exe()?];
     let rel_paths = [
-        format!("assets/filelist/{}.list", project_name),
-        format!("assets/filelist/{}.list.zst", project_name),
+        format!("assets/filelist/{}.list", project_name_or_path),
+        format!("assets/filelist/{}.list.zst", project_name_or_path),
     ];
 
     let mut path_abs = None;
-    if list_file.is_some() {
-        let path_buf = list_file.as_ref().unwrap().into();
-        path_abs = Some(path_buf);
-    } else {
-        for parent_path in &parent_paths {
-            for rel_path in &rel_paths {
-                let p = parent_path.join(rel_path);
-                if p.exists() && p.is_file() {
-                    path_abs = Some(p);
-                    break;
-                }
+    for parent_path in &parent_paths {
+        for rel_path in &rel_paths {
+            let p = parent_path.join(rel_path);
+            if p.exists() && p.is_file() {
+                path_abs = Some(p);
+                break;
             }
         }
     }
@@ -117,7 +119,7 @@ fn load_filename_table(project_name: &str, list_file: &Option<String>) -> anyhow
     } else {
         anyhow::bail!(
             "Project file `{}` not found in assets/filelist, check your project name.",
-            project_name
+            project_name_or_path
         );
     }
 }
@@ -136,22 +138,21 @@ fn process_entry(
     drop(r);
 
     // output file path
-    let fount_path = file_name_table
+    let relative_path = file_name_table
         .get_file_name(entry.hash())
         .map(|fname| fname.get_name().to_string());
-    let file_relative_path: PathBuf;
-    if fount_path == None && skip_unknown {
+    let relative_path: PathBuf = if relative_path.is_none() && skip_unknown {
         return Ok(());
     } else {
-        file_relative_path = fount_path
+        relative_path
             .unwrap_or_else(|| format!("_Unknown/{:08X}", entry.hash()))
-            .into();
-    }
-    let filepath = output_path.join(file_relative_path);
-    let filedir = filepath.parent().unwrap();
+            .into()
+    };
+    let file_output_path = output_path.join(relative_path);
+    let file_dir = file_output_path.parent().unwrap();
 
-    if !filedir.exists() {
-        std::fs::create_dir_all(filedir)?;
+    if !file_dir.exists() {
+        std::fs::create_dir_all(file_dir)?;
     }
 
     let mut data = vec![];
@@ -162,17 +163,20 @@ fn process_entry(
             .create(true)
             .write(true)
             .truncate(true)
-            .open(&filepath)?
+            .open(&file_output_path)?
     } else {
-        OpenOptions::new().create_new(true).write(true).open(&filepath)?
+        OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&file_output_path)?
     };
     file.write_all(&data)?;
 
     // guess unknown file extension
-    if filepath.extension().is_none() {
+    if file_output_path.extension().is_none() {
         if let Some(ext) = entry_reader.determine_extension() {
-            let new_path = filepath.with_extension(ext);
-            std::fs::rename(filepath, new_path)?;
+            let new_path = file_output_path.with_extension(ext);
+            std::fs::rename(file_output_path, new_path)?;
         }
     }
 
@@ -182,7 +186,7 @@ fn process_entry(
 
 fn unpack_parallel_error_terminate(cmd: &UnpackCommand) -> anyhow::Result<()> {
     // load project file name table
-    let file_name_table = load_filename_table(&cmd.project, &cmd.list_file)?;
+    let file_name_table = load_filename_table(&cmd.project)?;
 
     // load PAK file
     let file = std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
@@ -232,7 +236,7 @@ fn unpack_parallel_error_terminate(cmd: &UnpackCommand) -> anyhow::Result<()> {
 
 fn unpack_parallel_error_continue(cmd: &UnpackCommand) -> anyhow::Result<()> {
     // load project file name table
-    let file_name_table = load_filename_table(&cmd.project, &cmd.list_file)?;
+    let file_name_table = load_filename_table(&cmd.project)?;
 
     // load PAK file
     let file = std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
@@ -283,7 +287,11 @@ fn unpack_parallel_error_continue(cmd: &UnpackCommand) -> anyhow::Result<()> {
         if errors.len() < 30 {
             println!("Errors: {:?}", errors);
         } else {
-            println!("Too many errors to display.");
+            println!("Errors: {:?}", &errors[0..30]);
+            println!(
+                "Displaying only the first 30 errors. Too many errors to display ({}).",
+                errors.len()
+            );
         }
     } else {
         println!("Done.");

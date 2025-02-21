@@ -19,7 +19,7 @@ enum Command {
 
 #[derive(Debug, Args)]
 struct UnpackCommand {
-    /// Game project name, e.g. "MHRS_PC_Demo"
+    /// Game project name or list file path, e.g. "MHRS_PC_Demo", "./MHRS_PC_Demo.list"
     #[clap(short, long)]
     project: String,
     /// Input PAK file path
@@ -28,9 +28,6 @@ struct UnpackCommand {
     /// Output directory path
     #[clap(short, long)]
     output: Option<String>,
-    /// List file to use; overrides the project arg
-    #[clap(short, long)]
-    list_file: Option<String>,
     /// Ignore errors during unpacking files
     #[clap(long, default_value = "false")]
     ignore_error: bool,
