@@ -158,18 +158,13 @@ fn process_entry(
     let mut data = vec![];
     std::io::copy(&mut entry_reader, &mut data)?;
 
-    let mut file = if r#override {
-        OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&file_output_path)?
+    let mut open_options = OpenOptions::new();
+    if r#override {
+        open_options.create(true).write(true).truncate(true);
     } else {
-        OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&file_output_path)?
-    };
+        open_options.create_new(true).write(true);
+    }
+    let mut file = open_options.open(&file_output_path)?;
     file.write_all(&data)?;
 
     // guess unknown file extension

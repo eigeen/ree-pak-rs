@@ -6,9 +6,7 @@ use crate::spec;
 
 pub mod archive;
 pub mod compressed;
-pub mod encrypted;
 pub mod entry;
-pub mod extension;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PakReaderError {
