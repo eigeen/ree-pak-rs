@@ -1,22 +1,27 @@
 [workspace]
 resolver = "2"
-members = [
-    "ree-pak-core",
-    "ree-pak-cli",
-    "ree-pak-gui/src-tauri",
-]
+members = ["ree-pak-core", "ree-pak-cli", "ree-pak-gui/src-tauri"]
 
-[workspace.dependencies]
-byteorder = "1.5"
-murmur3 = "0.5"
-nohash = "0.2"
-rustc-hash = "2.1.1"
-thiserror = "2.0.11"
-rayon = "1.10"
-bitflags = "2.8.0"
-anyhow = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-zstd = "0.13.2"
-parking_lot = "0.12.3"
-sysinfo = "0.33.1"
+    [workspace.dependencies]
+    byteorder = "1.5"
+    murmur3 = "0.5"
+    nohash = "0.2"
+    rustc-hash = "2.1.1"
+    thiserror = "2.0.11"
+    rayon = "1.10"
+    bitflags = "2.8.0"
+    anyhow = "1.0"
+    serde = { version = "1.0", features = ["derive"] }
+    serde_json = "1.0"
+    zstd = "0.13.2"
+    parking_lot = "0.12.3"
+    sysinfo = "0.33.1"
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+strip = true
+# codegen-units = 1
+# lto = true
+# panic = "abort"

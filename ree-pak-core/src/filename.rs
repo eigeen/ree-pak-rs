@@ -105,7 +105,7 @@ impl FileName {
         let upper = upper as u64;
         let lower = lower as u64;
 
-        upper << 32 | lower
+        (upper << 32) | lower
     }
 }
 

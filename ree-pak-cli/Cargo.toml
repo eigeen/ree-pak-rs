@@ -1,7 +1,8 @@
 [package]
 name = "ree-pak-cli"
 version = "0.2.3"
-edition = "2021"
+edition = "2024"
+rust-version = "1.85"
 
 [dependencies]
 ree-pak-core = { path = "../ree-pak-core" }

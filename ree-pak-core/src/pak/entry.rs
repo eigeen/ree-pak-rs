@@ -25,7 +25,7 @@ impl PakEntry {
         let upper = self.hash_name_upper as u64;
         let lower = self.hash_name_lower as u64;
 
-        upper << 32 | lower
+        (upper << 32) | lower
     }
 
     pub fn offset(&self) -> u64 {
