@@ -114,7 +114,7 @@ checksum = "dcfed56ad506cb2c684a14971b8861fdc3baaaae314b9e5f9bb532cbe3ba7a4f"
 
 [[package]]
 name = "app"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "nohash",
