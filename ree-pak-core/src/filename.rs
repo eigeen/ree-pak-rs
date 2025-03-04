@@ -143,7 +143,8 @@ mod tests {
         for entry in std::fs::read_dir(DIR).unwrap() {
             let entry = entry.unwrap();
             let path = entry.path();
-            if path.is_file() && path.extension().unwrap_or_default() == ".list" {
+            if path.is_file() && path.extension().unwrap_or_default() == "list" {
+                eprintln!("path: {}", path.display());
                 let content = std::fs::read(&path).unwrap();
                 let mut encoder = zstd::Encoder::new(Vec::new(), 11).unwrap();
                 encoder.write_all(&content).unwrap();

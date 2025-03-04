@@ -1,23 +1,24 @@
 use serde::Serialize;
 
-use crate::serde_util::{serialize_u32_hex, serialize_u64_hex};
+use crate::serde_util::{serde_u32_hex, serde_u64_hex};
 use crate::spec;
 
-use super::flag::{CompressionType, EncryptionType};
+use super::flag::{CompressionType, EncryptionType, UnkAttr};
 
 #[derive(Clone, Default, Serialize)]
 pub struct PakEntry {
-    #[serde(serialize_with = "serialize_u32_hex")]
-    hash_name_lower: u32,
-    #[serde(serialize_with = "serialize_u32_hex")]
-    hash_name_upper: u32,
-    offset: u64,
-    compressed_size: u64,
-    uncompressed_size: u64,
-    compression_type: CompressionType,
-    encryption_type: EncryptionType,
-    #[serde(serialize_with = "serialize_u64_hex")]
-    checksum: u64,
+    #[serde(with = "serde_u32_hex")]
+    pub(crate) hash_name_lower: u32,
+    #[serde(with = "serde_u32_hex")]
+    pub(crate) hash_name_upper: u32,
+    pub(crate) offset: u64,
+    pub(crate) compressed_size: u64,
+    pub(crate) uncompressed_size: u64,
+    pub(crate) compression_type: CompressionType,
+    pub(crate) encryption_type: EncryptionType,
+    #[serde(with = "serde_u64_hex")]
+    pub(crate) checksum: u64,
+    pub(crate) unk_attr: UnkAttr,
 }
 
 impl PakEntry {
@@ -51,6 +52,15 @@ impl PakEntry {
     pub fn checksum(&self) -> u64 {
         self.checksum
     }
+
+    pub fn unk_attr(&self) -> &UnkAttr {
+        &self.unk_attr
+    }
+
+    pub fn into_bytes_v2(self) -> Vec<u8> {
+        let entry_v2 = spec::EntryV2::from(self.clone());
+        entry_v2.into_bytes().to_vec()
+    }
 }
 
 impl From<spec::EntryV1> for PakEntry {
@@ -75,6 +85,24 @@ impl From<spec::EntryV2> for PakEntry {
             uncompressed_size: value.uncompressed_size,
             compression_type: CompressionType::from_bits_truncate((value.attributes & 0xF) as u8),
             encryption_type: (((value.attributes & 0x00FF0000) >> 16) as u32).into(),
+            checksum: value.checksum,
+            unk_attr: UnkAttr::from_bits_truncate(value.attributes as u64),
+        }
+    }
+}
+
+impl From<PakEntry> for spec::EntryV2 {
+    fn from(value: PakEntry) -> Self {
+        let attr_known = (value.compression_type.bits() as i64) | (((value.encryption_type as u32) as i64) << 16);
+        let attr = attr_known | value.unk_attr.bits() as i64;
+
+        Self {
+            hash_name_lower: value.hash_name_lower,
+            hash_name_upper: value.hash_name_upper,
+            offset: value.offset,
+            compressed_size: value.compressed_size,
+            uncompressed_size: value.uncompressed_size,
+            attributes: attr,
             checksum: value.checksum,
         }
     }

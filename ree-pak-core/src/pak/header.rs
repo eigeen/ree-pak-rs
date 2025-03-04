@@ -1,20 +1,20 @@
 use serde::{Deserialize, Serialize};
 
-use crate::serde_util::serialize_u32_hex;
+use crate::serde_util::serde_u32_hex;
 use crate::spec;
 
 const HEADER_MAGIC: &[u8; 4] = b"KPKA";
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct PakHeader {
-    magic: [u8; 4],
-    major_version: u8,
-    minor_version: u8,
-    feature: u16,
-    total_files: u32,
+    pub(crate) magic: [u8; 4],
+    pub(crate) major_version: u8,
+    pub(crate) minor_version: u8,
+    pub(crate) feature: u16,
+    pub(crate) total_files: u32,
     // didn't really understand this field, probably signature or fingerprint.
-    #[serde(serialize_with = "serialize_u32_hex")]
-    hash: u32,
+    #[serde(with = "serde_u32_hex")]
+    pub(crate) hash: u32,
 }
 
 impl PakHeader {
@@ -26,32 +26,26 @@ impl PakHeader {
         }
     }
 
-    #[inline]
     pub fn magic(&self) -> [u8; 4] {
         self.magic
     }
 
-    #[inline]
     pub fn major_version(&self) -> u8 {
         self.major_version
     }
 
-    #[inline]
     pub fn minor_version(&self) -> u8 {
         self.minor_version
     }
 
-    #[inline]
     pub fn feature(&self) -> u16 {
         self.feature
     }
 
-    #[inline]
     pub fn total_files(&self) -> u32 {
         self.total_files
     }
 
-    #[inline]
     pub fn hash(&self) -> u32 {
         self.hash
     }

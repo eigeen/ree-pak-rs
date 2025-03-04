@@ -22,6 +22,13 @@ impl EntryV1 {
         reader.read_exact(&mut buf)?;
         unsafe { Ok(std::mem::transmute::<[u8; Self::SIZE], Self>(buf)) }
     }
+
+    pub fn into_bytes(self) -> [u8; Self::SIZE] {
+        unsafe {
+            let bytes: [u8; Self::SIZE] = std::mem::transmute(self);
+            bytes
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -46,6 +53,13 @@ impl EntryV2 {
         let mut buf = [0u8; Self::SIZE];
         reader.read_exact(&mut buf)?;
         unsafe { Ok(std::mem::transmute::<[u8; Self::SIZE], Self>(buf)) }
+    }
+
+    pub fn into_bytes(self) -> [u8; Self::SIZE] {
+        unsafe {
+            let bytes: [u8; Self::SIZE] = std::mem::transmute(self);
+            bytes
+        }
     }
 }
 
