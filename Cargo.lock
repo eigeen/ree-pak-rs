@@ -3175,6 +3175,7 @@ dependencies = [
  "parking_lot",
  "rayon",
  "ree-pak-core",
+ "regex",
  "serde",
  "serde_json",
  "tokio",

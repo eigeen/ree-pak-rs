@@ -28,6 +28,9 @@ struct UnpackCommand {
     /// Output directory path
     #[clap(short, long)]
     output: Option<String>,
+    /// Regex patterns to filter files to unpack by file path.
+    #[clap(short, long, default_value = "[]")]
+    filter: Vec<String>,
     /// Ignore errors during unpacking files
     #[clap(long, default_value = "false")]
     ignore_error: bool,

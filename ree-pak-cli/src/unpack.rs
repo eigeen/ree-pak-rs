@@ -9,7 +9,12 @@ use anyhow::Context;
 use indicatif::{ProgressBar, ProgressStyle};
 use parking_lot::Mutex;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use ree_pak_core::{filename::FileNameTable, pak::PakEntry, read::archive::PakArchiveReader};
+use ree_pak_core::{
+    filename::FileNameTable,
+    pak::{PakArchive, PakEntry},
+    read::archive::PakArchiveReader,
+};
+use regex::Regex;
 use serde::Serialize;
 
 use crate::{DumpInfoCommand, UnpackCommand};
@@ -71,6 +76,36 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
     let file = std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
     let mut reader = std::io::BufReader::new(file);
     let archive = ree_pak_core::read::read_archive(&mut reader)?;
+    let archive = if !cmd.filter.is_empty() || cmd.skip_unknown {
+        // apply filter
+        let filters = cmd
+            .filter
+            .iter()
+            .map(|f| Regex::new(f))
+            .collect::<Result<Vec<_>, _>>()?;
+        let entries = archive
+            .entries()
+            .iter()
+            .filter(|&entry| {
+                let file_name = file_name_table.get_file_name(entry.hash());
+                match file_name {
+                    Some(file_name) => {
+                        if filters.is_empty() {
+                            return true;
+                        }
+                        let file_name = file_name.get_name();
+                        filters.iter().any(|f| f.is_match(file_name))
+                    }
+                    None => !cmd.skip_unknown,
+                }
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        PakArchive::new(archive.header().clone(), entries)
+    } else {
+        archive
+    };
+
     let archive_reader = Mutex::new(PakArchiveReader::new(reader, &archive));
 
     // output path
@@ -78,9 +113,7 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
 
     // extract files
     let bar = ProgressBar::new(archive.entries().len() as u64);
-    bar.set_style(
-        ProgressStyle::default_bar().template("{pos}/{len} files written {wide_bar} elapsed: {elapsed} eta: {eta}")?,
-    );
+    bar.set_style(ProgressStyle::default_bar().template("{pos}/{len} files {wide_bar} elapsed: {elapsed} eta: {eta}")?);
     bar.enable_steady_tick(Duration::from_millis(100));
     bar.println(format!("Output directory: `{}`", output_path.display()));
 
@@ -96,7 +129,6 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
                 &archive_reader,
                 &bar,
                 cmd.r#override,
-                cmd.skip_unknown,
             );
             if let Err(e) = &result {
                 bar.println(format!(
@@ -196,7 +228,6 @@ fn process_entry(
     archive_reader: &Mutex<PakArchiveReader<BufReader<File>>>,
     bar: &ProgressBar,
     r#override: bool,
-    r#skip_unknown: bool,
 ) -> anyhow::Result<()> {
     let mut entry_reader = {
         let mut r = archive_reader.lock();
@@ -206,14 +237,8 @@ fn process_entry(
     // output file path
     let relative_path = file_name_table
         .get_file_name(entry.hash())
-        .map(|fname| fname.get_name().to_string());
-    let relative_path: PathBuf = if relative_path.is_none() && skip_unknown {
-        return Ok(());
-    } else {
-        relative_path
-            .unwrap_or_else(|| format!("_Unknown/{:08X}", entry.hash()))
-            .into()
-    };
+        .map(|fname| fname.get_name().to_string())
+        .unwrap_or_else(|| format!("_Unknown/{:08X}", entry.hash()));
     let file_output_path = output_path.join(relative_path);
     let file_dir = file_output_path.parent().unwrap();
 
