@@ -12,6 +12,7 @@ pub struct PakHeader {
     minor_version: u8,
     feature: u16,
     total_files: u32,
+    // didn't really understand this field, probably signature or fingerprint.
     #[serde(serialize_with = "serialize_u32_hex")]
     hash: u32,
 }

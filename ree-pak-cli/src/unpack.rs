@@ -2,12 +2,12 @@ use std::{
     fs::{File, OpenOptions},
     io::{BufReader, Write},
     path::{Path, PathBuf},
-    sync::Mutex,
     time::Duration,
 };
 
 use anyhow::Context;
 use indicatif::{ProgressBar, ProgressStyle};
+use parking_lot::Mutex;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use ree_pak_core::{filename::FileNameTable, pak::PakEntry, read::archive::PakArchiveReader};
 use serde::Serialize;
@@ -24,14 +24,6 @@ struct PakInfo {
 struct EntryWithPath {
     entry: ree_pak_core::pak::PakEntry,
     path: Option<String>,
-}
-
-pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
-    if cmd.ignore_error {
-        unpack_parallel_error_continue(cmd)
-    } else {
-        unpack_parallel_error_terminate(cmd)
-    }
 }
 
 pub fn dump_info(cmd: &DumpInfoCommand) -> anyhow::Result<()> {
@@ -67,6 +59,79 @@ pub fn dump_info(cmd: &DumpInfoCommand) -> anyhow::Result<()> {
         path
     };
     std::fs::write(output_path, json)?;
+
+    Ok(())
+}
+
+pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
+    // load project file name table
+    let file_name_table = load_filename_table(&cmd.project)?;
+
+    // load PAK file
+    let file = std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
+    let mut reader = std::io::BufReader::new(file);
+    let archive = ree_pak_core::read::read_archive(&mut reader)?;
+    let archive_reader = Mutex::new(PakArchiveReader::new(reader, &archive));
+
+    // output path
+    let output_path = output_path(&cmd.output, &cmd.input);
+
+    // extract files
+    let bar = ProgressBar::new(archive.entries().len() as u64);
+    bar.set_style(
+        ProgressStyle::default_bar().template("{pos}/{len} files written {wide_bar} elapsed: {elapsed} eta: {eta}")?,
+    );
+    bar.enable_steady_tick(Duration::from_millis(100));
+    bar.println(format!("Output directory: `{}`", output_path.display()));
+
+    let results: Mutex<Vec<anyhow::Result<()>>> = Mutex::new(vec![]);
+    archive
+        .entries()
+        .par_iter()
+        .try_for_each(|entry| -> anyhow::Result<()> {
+            let result = process_entry(
+                entry,
+                &file_name_table,
+                &output_path,
+                &archive_reader,
+                &bar,
+                cmd.r#override,
+                cmd.skip_unknown,
+            );
+            if let Err(e) = &result {
+                bar.println(format!(
+                    "Error processing entry: {:#}. Path: {:?}\nEntry: {:?}",
+                    e,
+                    file_name_table.get_file_name(entry.hash()).unwrap(),
+                    entry
+                ));
+                if cmd.ignore_error {
+                    // ignore error and continue, save result
+                    results.lock().push(result);
+                    return Ok(());
+                }
+            };
+            result
+        })?;
+
+    bar.finish();
+
+    let results = results.into_inner();
+    if !results.is_empty() {
+        let errors = results.iter().filter(|r| r.is_err()).collect::<Vec<_>>();
+        println!("Done with {} errors", errors.len());
+        if errors.len() < 30 {
+            println!("Errors: {:?}", errors);
+        } else {
+            println!("Errors: {:?}", &errors[0..30]);
+            println!(
+                "Displaying only the first 30 errors. Too many errors to display ({}).",
+                errors.len()
+            );
+        }
+    } else {
+        println!("Done.");
+    }
 
     Ok(())
 }
@@ -107,7 +172,7 @@ fn load_filename_table(project_name_or_path: &str) -> anyhow::Result<FileNameTab
     for parent_path in &parent_paths {
         for rel_path in &rel_paths {
             let p = parent_path.join(rel_path);
-            if p.exists() && p.is_file() {
+            if p.is_file() {
                 path_abs = Some(p);
                 break;
             }
@@ -133,9 +198,10 @@ fn process_entry(
     r#override: bool,
     r#skip_unknown: bool,
 ) -> anyhow::Result<()> {
-    let mut r = archive_reader.lock().unwrap();
-    let mut entry_reader = (*r).owned_entry_reader(entry.clone())?;
-    drop(r);
+    let mut entry_reader = {
+        let mut r = archive_reader.lock();
+        (*r).owned_entry_reader(entry.clone())?
+    };
 
     // output file path
     let relative_path = file_name_table
@@ -176,121 +242,5 @@ fn process_entry(
     }
 
     bar.inc(1);
-    Ok(())
-}
-
-fn unpack_parallel_error_terminate(cmd: &UnpackCommand) -> anyhow::Result<()> {
-    // load project file name table
-    let file_name_table = load_filename_table(&cmd.project)?;
-
-    // load PAK file
-    let file = std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
-    let mut reader = std::io::BufReader::new(file);
-    let archive = ree_pak_core::read::read_archive(&mut reader)?;
-    let archive_reader = Mutex::new(PakArchiveReader::new(reader, &archive));
-
-    // output path
-    let output_path = output_path(&cmd.output, &cmd.input);
-
-    // extract files
-    let bar = ProgressBar::new(archive.entries().len() as u64);
-    bar.set_style(
-        ProgressStyle::default_bar().template("{pos}/{len} files written {wide_bar} elapsed: {elapsed} eta: {eta}")?,
-    );
-    bar.enable_steady_tick(Duration::from_millis(100));
-    bar.println(format!("Output directory: `{}`", output_path.display()));
-    archive
-        .entries()
-        .par_iter()
-        .try_for_each(|entry| -> anyhow::Result<()> {
-            let result = process_entry(
-                entry,
-                &file_name_table,
-                &output_path,
-                &archive_reader,
-                &bar,
-                cmd.r#override,
-                cmd.r#skip_unknown,
-            );
-            if let Err(e) = &result {
-                bar.println(format!(
-                    "Error processing entry: {}. Path: {:?}\nEntry: {:?}",
-                    e,
-                    file_name_table.get_file_name(entry.hash()).unwrap(),
-                    entry
-                ))
-            };
-            result
-        })?;
-
-    bar.finish();
-    println!("Done.");
-
-    Ok(())
-}
-
-fn unpack_parallel_error_continue(cmd: &UnpackCommand) -> anyhow::Result<()> {
-    // load project file name table
-    let file_name_table = load_filename_table(&cmd.project)?;
-
-    // load PAK file
-    let file = std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
-    let mut reader = std::io::BufReader::new(file);
-    let archive = ree_pak_core::read::read_archive(&mut reader)?;
-    let archive_reader = Mutex::new(PakArchiveReader::new(reader, &archive));
-
-    // output path
-    let output_path = output_path(&cmd.output, &cmd.input);
-
-    // extract files
-    let bar = ProgressBar::new(archive.entries().len() as u64);
-    bar.set_style(
-        ProgressStyle::default_bar().template("{pos}/{len} files written {wide_bar} elapsed: {elapsed} eta: {eta}")?,
-    );
-    bar.enable_steady_tick(Duration::from_millis(100));
-    bar.println(format!("Output directory: `{}`", output_path.display()));
-    let results: Vec<anyhow::Result<()>> = archive
-        .entries()
-        .par_iter()
-        .map(|entry| -> anyhow::Result<()> {
-            let result = process_entry(
-                entry,
-                &file_name_table,
-                &output_path,
-                &archive_reader,
-                &bar,
-                cmd.r#override,
-                cmd.r#skip_unknown,
-            );
-            if let Err(e) = &result {
-                bar.println(format!(
-                    "Error processing entry: {:#}. Path: {:?}\nEntry: {:?}",
-                    e,
-                    file_name_table.get_file_name(entry.hash()).unwrap(),
-                    entry
-                ));
-            };
-            result
-        })
-        .collect();
-
-    bar.finish();
-
-    if !results.is_empty() {
-        let errors = results.iter().filter(|r| r.is_err()).collect::<Vec<_>>();
-        println!("Done with {} errors", errors.len());
-        if errors.len() < 30 {
-            println!("Errors: {:?}", errors);
-        } else {
-            println!("Errors: {:?}", &errors[0..30]);
-            println!(
-                "Displaying only the first 30 errors. Too many errors to display ({}).",
-                errors.len()
-            );
-        }
-    } else {
-        println!("Done.");
-    }
-
     Ok(())
 }

@@ -12,11 +12,11 @@ rustc-hash.workspace = true
 thiserror.workspace = true
 rayon.workspace = true
 bitflags.workspace = true
-
-num = { version = "0.4", features = ["num-bigint"] }
+parking_lot.workspace = true
+serde = { workspace = true, features = ["derive"] }
 
 # compression
 zstd.workspace = true
-parking_lot.workspace = true
 flate2 = "1.0"
-serde = { workspace = true, features = ["derive"] }
+
+num = { version = "0.4", features = ["num-bigint"] }
