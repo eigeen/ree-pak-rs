@@ -3167,10 +3167,11 @@ dependencies = [
 
 [[package]]
 name = "ree-pak-cli"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "clap",
+ "indexmap 2.7.1",
  "indicatif",
  "parking_lot",
  "rayon",
@@ -3179,11 +3180,12 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "walkdir",
 ]
 
 [[package]]
 name = "ree-pak-core"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "bitflags 2.9.0",
  "byteorder",

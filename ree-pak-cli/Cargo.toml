@@ -1,6 +1,6 @@
 [package]
 name = "ree-pak-cli"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 rust-version = "1.85"
 
@@ -12,6 +12,8 @@ rayon.workspace = true
 serde_json.workspace = true
 serde = { workspace = true, features = ["derive"] }
 parking_lot.workspace = true
+walkdir.workspace = true
+indexmap.workspace = true
 
 clap = { version = "4.5", features = ["derive"] }
 indicatif = "0.17"

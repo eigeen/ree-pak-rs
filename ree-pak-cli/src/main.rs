@@ -1,5 +1,8 @@
+use std::env;
+
 use clap::{Args, Parser, Subcommand};
 
+mod pack;
 mod unpack;
 
 #[derive(Debug, Parser)]
@@ -15,54 +18,86 @@ enum Command {
     Unpack(UnpackCommand),
     /// Dump PAK information
     DumpInfo(DumpInfoCommand),
+    /// Pack files into a PAK file
+    Pack(PackCommand),
 }
 
 #[derive(Debug, Args)]
 struct UnpackCommand {
     /// Game project name or list file path, e.g. "MHRS_PC_Demo", "./MHRS_PC_Demo.list"
-    #[clap(short, long)]
+    #[arg(short, long)]
     project: String,
     /// Input PAK file path
-    #[clap(short, long)]
+    #[arg(short, long)]
     input: String,
     /// Output directory path
-    #[clap(short, long)]
+    #[arg(short, long)]
     output: Option<String>,
     /// Regex patterns to filter files to unpack by file path.
-    #[clap(short, long, default_value = "[]")]
+    #[arg(short, long, default_value = "")]
     filter: Vec<String>,
     /// Ignore errors during unpacking files
-    #[clap(long, default_value = "false")]
+    #[arg(long, default_value = "false")]
     ignore_error: bool,
     /// Override existing files
-    #[clap(long, default_value = "false")]
+    #[arg(long, default_value = "false")]
     r#override: bool,
     /// Skip files with an unknown path while unpacking
-    #[clap(long, default_value = "false")]
+    #[arg(long, default_value = "false")]
     r#skip_unknown: bool,
 }
 
 #[derive(Debug, Args)]
 struct DumpInfoCommand {
     /// Game project name, e.g. "MHRS_PC_Demo"
-    #[clap(short, long)]
+    #[arg(short, long)]
     project: String,
     /// Input PAK file path
-    #[clap(short, long)]
+    #[arg(short, long)]
     input: String,
     /// Output file path
-    #[clap(short, long)]
+    #[arg(short, long)]
     output: Option<String>,
     /// Override existing files
-    #[clap(long, default_value = "false")]
+    #[arg(long, default_value = "false")]
+    r#override: bool,
+}
+
+#[derive(Debug, Args)]
+struct PackCommand {
+    /// Input directory path.
+    #[arg(short, long)]
+    input: String,
+    /// Output PAK file path
+    #[arg(short, long)]
+    output: Option<String>,
+    /// Override existing file.
+    #[arg(long, default_value = "false")]
     r#override: bool,
 }
 
 fn main() -> anyhow::Result<()> {
+    // direct argumet mode for drap-and-drop
+    let args = env::args().skip(1).collect::<Vec<String>>();
+    if args.len() == 1 {
+        // try to load as pack command with input directory
+        let path = std::path::Path::new(&args[0]);
+        if path.is_dir() {
+            let cmd = PackCommand {
+                input: args[0].to_string(),
+                output: None,
+                r#override: true,
+            };
+            pack::package(&cmd)?;
+            return Ok(());
+        }
+    }
+
     let cli = Cli::parse();
 
     match &cli.command {
         Command::Unpack(cmd) => unpack::unpack_parallel(cmd),
         Command::DumpInfo(cmd) => unpack::dump_info(cmd),
+        Command::Pack(cmd) => pack::package(cmd),
     }
 }

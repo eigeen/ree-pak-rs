@@ -16,6 +16,8 @@ members = ["ree-pak-core", "ree-pak-cli", "ree-pak-gui/src-tauri"]
     zstd = "0.13.3"
     parking_lot = "0.12.3"
     sysinfo = "0.33.1"
+    walkdir = "2"
+    indexmap = "2.7.1"
 
 [profile.dev]
 incremental = true
