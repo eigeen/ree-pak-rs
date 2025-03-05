@@ -11,8 +11,8 @@ pub enum PakError {
     InvalidMagic { expected: [u8; 4], found: [u8; 4] },
     #[error("Unsupported Pak version: {major}.{minor}")]
     UnsupportedVersion { major: u8, minor: u8 },
-    #[error("Unsupported algorithm: {0:X}")]
-    UnsupportedAlgorithm(u16),
+    #[error("Pak contains unsupported feature flags: {0:X}")]
+    UnsupportedFeature(crate::pak::FeatureFlags),
     #[error("Invalid file list: {0}")]
     InvalidFileList(AnyError),
 

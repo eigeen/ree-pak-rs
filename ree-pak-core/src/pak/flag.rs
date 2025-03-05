@@ -46,6 +46,54 @@ impl From<u32> for EncryptionType {
 
 bitflags! {
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+    pub struct FeatureFlags: u16 {
+        const BIT00 = 1 << 0;
+        const BIT01 = 1 << 1;
+        const BIT02 = 1 << 2;
+        const ENTRY_ENCRYPTION = 1 << 3;
+        const EXTRA_U32 = 1 << 4;
+        const BIT05 = 1 << 5;
+        const BIT06 = 1 << 6;
+        const BIT07 = 1 << 7;
+        const BIT08 = 1 << 8;
+        const BIT09 = 1 << 9;
+        const BIT10 = 1 << 10;
+        const BIT11 = 1 << 11;
+        const BIT12 = 1 << 12;
+        const BIT13 = 1 << 13;
+        const BIT14 = 1 << 14;
+        const BIT15 = 1 << 15;
+    }
+}
+
+impl FeatureFlags {
+    pub fn check_supported(&self) -> bool {
+        let supported_flags = FeatureFlags::ENTRY_ENCRYPTION | FeatureFlags::EXTRA_U32;
+        self.bits() & !supported_flags.bits() == 0
+    }
+}
+
+impl Serialize for FeatureFlags {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_u16(self.bits())
+    }
+}
+
+impl<'de> Deserialize<'de> for FeatureFlags {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = u16::deserialize(deserializer)?;
+        Ok(FeatureFlags::from_bits_truncate(value))
+    }
+}
+
+bitflags! {
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
     pub struct UnkAttr: u64 {
         // const BIT00 = 1 << 0;
         // const BIT01 = 1 << 1;

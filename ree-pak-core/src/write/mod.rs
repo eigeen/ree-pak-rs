@@ -7,7 +7,7 @@ use indexmap::IndexMap;
 
 use crate::{
     filename::FileName,
-    pak::{CompressionType, EncryptionType, PakEntry, PakHeader, UnkAttr},
+    pak::{CompressionType, EncryptionType, FeatureFlags, PakEntry, PakHeader, UnkAttr},
     spec,
 };
 
@@ -85,7 +85,7 @@ impl<W: Write + Seek + Read> PakWriter<W> {
         let header = PakHeader {
             major_version: self.pak_options.major_version,
             minor_version: self.pak_options.minor_version,
-            feature: 0,
+            feature: FeatureFlags::default(),
             total_files: self.files.len() as u32,
             hash: 0,
             unk_u32_sig: 0,

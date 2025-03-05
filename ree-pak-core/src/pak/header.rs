@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use crate::serde_util::serde_u32_hex;
 use crate::spec;
 
+use super::FeatureFlags;
+
 const HEADER_MAGIC: &[u8; 4] = b"KPKA";
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -10,13 +12,13 @@ pub struct PakHeader {
     pub(crate) magic: [u8; 4],
     pub(crate) major_version: u8,
     pub(crate) minor_version: u8,
-    pub(crate) feature: u16,
+    pub(crate) feature: FeatureFlags,
     pub(crate) total_files: u32,
     // didn't really understand this field, probably signature or fingerprint.
     #[serde(with = "serde_u32_hex")]
     pub(crate) hash: u32,
     /// another unknown field
-    /// if xxx
+    /// if feature contains specific flag,
     /// the value will between the resource headers
     /// and the 128 byte signature bytes.
     pub(crate) unk_u32_sig: u32,
@@ -28,7 +30,7 @@ impl Default for PakHeader {
             magic: *HEADER_MAGIC,
             major_version: 0,
             minor_version: 0,
-            feature: 0,
+            feature: FeatureFlags::default(),
             total_files: 0,
             hash: 0,
             unk_u32_sig: 0,
@@ -57,7 +59,7 @@ impl PakHeader {
         self.minor_version
     }
 
-    pub fn feature(&self) -> u16 {
+    pub fn feature(&self) -> FeatureFlags {
         self.feature
     }
 
@@ -91,15 +93,16 @@ impl TryFrom<spec::Header> for PakHeader {
                 minor: this.minor_version,
             });
         }
-        if ![0, 8].contains(&this.feature) {
-            return Err(Self::Error::UnsupportedAlgorithm(this.feature));
+        let feature = FeatureFlags::from_bits_truncate(this.feature);
+        if !feature.check_supported() {
+            return Err(Self::Error::UnsupportedFeature(feature));
         }
 
         Ok(PakHeader {
             magic: this.magic,
             major_version: this.major_version,
             minor_version: this.minor_version,
-            feature: this.feature,
+            feature,
             total_files: this.total_files,
             hash: this.hash,
             unk_u32_sig: 0, // TODO
@@ -113,7 +116,7 @@ impl From<PakHeader> for spec::Header {
             magic: value.magic,
             major_version: value.major_version,
             minor_version: value.minor_version,
-            feature: value.feature,
+            feature: value.feature.bits(),
             total_files: value.total_files,
             hash: value.hash,
         }

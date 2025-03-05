@@ -1,7 +1,9 @@
 use std::io::{Cursor, Read};
 
+use byteorder::{LE, ReadBytesExt};
+
 use crate::error::Result;
-use crate::pak::{self, CompressionType, PakArchive, PakEntry, PakHeader};
+use crate::pak::{self, CompressionType, FeatureFlags, PakArchive, PakEntry, PakHeader};
 use crate::spec;
 
 pub mod archive;
@@ -35,13 +37,19 @@ where
 {
     // read header
     let spec_header = spec::Header::from_reader(reader)?;
-    let header = PakHeader::try_from(spec_header)?;
+    let mut header = PakHeader::try_from(spec_header)?;
 
     // read entries
     let mut entry_table_bytes = vec![0; (header.entry_size() * header.total_files()) as usize];
     reader.read_exact(&mut entry_table_bytes)?;
+
+    if header.feature.contains(FeatureFlags::EXTRA_U32) {
+        // a unknown appended u32 value
+        let unk_u32 = reader.read_u32::<LE>()?;
+        header.unk_u32_sig = unk_u32;
+    }
     // decrypt
-    if header.feature() == 8 {
+    if header.feature.contains(FeatureFlags::ENTRY_ENCRYPTION) {
         let mut raw_key = [0; 128];
         reader.read_exact(&mut raw_key)?;
         entry_table_bytes = pak::decrypt_pak_data(&entry_table_bytes, &raw_key);
