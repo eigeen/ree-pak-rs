@@ -5,7 +5,7 @@ use crate::spec;
 
 const HEADER_MAGIC: &[u8; 4] = b"KPKA";
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct PakHeader {
     pub(crate) magic: [u8; 4],
     pub(crate) major_version: u8,
@@ -15,14 +15,33 @@ pub struct PakHeader {
     // didn't really understand this field, probably signature or fingerprint.
     #[serde(with = "serde_u32_hex")]
     pub(crate) hash: u32,
+    /// another unknown field
+    /// if xxx
+    /// the value will between the resource headers
+    /// and the 128 byte signature bytes.
+    pub(crate) unk_u32_sig: u32,
+}
+
+impl Default for PakHeader {
+    fn default() -> Self {
+        Self {
+            magic: *HEADER_MAGIC,
+            major_version: 0,
+            minor_version: 0,
+            feature: 0,
+            total_files: 0,
+            hash: 0,
+            unk_u32_sig: 0,
+        }
+    }
 }
 
 impl PakHeader {
     pub fn entry_size(&self) -> u32 {
         match self.major_version {
-            2 => 24,
-            4 => 48,
-            _ => panic!("Unsupported major version"),
+            2 => spec::EntryV1::SIZE as u32,
+            4 => spec::EntryV2::SIZE as u32,
+            _ => panic!("Unsupported major version. Unreachable code."),
         }
     }
 
@@ -49,6 +68,11 @@ impl PakHeader {
     pub fn hash(&self) -> u32 {
         self.hash
     }
+
+    pub fn into_bytes(self) -> Vec<u8> {
+        let spec_header = spec::Header::from(self);
+        spec_header.into_bytes().to_vec()
+    }
 }
 
 impl TryFrom<spec::Header> for PakHeader {
@@ -61,7 +85,7 @@ impl TryFrom<spec::Header> for PakHeader {
                 found: this.magic,
             });
         }
-        if (this.major_version != 2 && this.major_version != 4) || ![0, 1].contains(&this.minor_version) {
+        if ![2, 4].contains(&this.major_version) || ![0, 1].contains(&this.minor_version) {
             return Err(Self::Error::UnsupportedVersion {
                 major: this.major_version,
                 minor: this.minor_version,
@@ -78,7 +102,21 @@ impl TryFrom<spec::Header> for PakHeader {
             feature: this.feature,
             total_files: this.total_files,
             hash: this.hash,
+            unk_u32_sig: 0, // TODO
         })
+    }
+}
+
+impl From<PakHeader> for spec::Header {
+    fn from(value: PakHeader) -> Self {
+        spec::Header {
+            magic: value.magic,
+            major_version: value.major_version,
+            minor_version: value.minor_version,
+            feature: value.feature,
+            total_files: value.total_files,
+            hash: value.hash,
+        }
     }
 }
 

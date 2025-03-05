@@ -118,7 +118,7 @@ impl std::fmt::Debug for PakEntry {
             .field("uncompressed_size", &self.uncompressed_size)
             .field("compression_type", &self.compression_type)
             .field("encryption_type", &self.encryption_type)
-            .field("checksum", &format!("{:16x}", self.checksum))
+            .field("checksum", &format!("{:016x}", self.checksum))
             .finish()
     }
 }

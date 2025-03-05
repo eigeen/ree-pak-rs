@@ -109,6 +109,24 @@ impl FileName {
     }
 }
 
+impl From<&str> for FileName {
+    fn from(s: &str) -> Self {
+        Self::new(s)
+    }
+}
+
+impl From<String> for FileName {
+    fn from(s: String) -> Self {
+        Self::new(&s)
+    }
+}
+
+impl AsRef<str> for FileName {
+    fn as_ref(&self) -> &str {
+        self.get_name()
+    }
+}
+
 pub fn murmur3_hash<R: std::io::Read>(mut reader: R) -> Result<u32> {
     Ok(murmur3::murmur3_32(&mut reader, 0xFFFFFFFF)?)
 }

@@ -9,7 +9,7 @@ pub use flag::*;
 pub use header::*;
 
 /// Pak Archive, stores the header and entries.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct PakArchive {
     header: PakHeader,
     entries: Vec<PakEntry>,

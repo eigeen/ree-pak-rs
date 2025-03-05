@@ -3188,6 +3188,7 @@ dependencies = [
  "bitflags 2.9.0",
  "byteorder",
  "flate2",
+ "indexmap 2.7.1",
  "murmur3",
  "nohash",
  "num",
