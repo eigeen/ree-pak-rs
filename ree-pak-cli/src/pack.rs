@@ -45,7 +45,7 @@ pub fn package(cmd: &PackCommand) -> anyhow::Result<()> {
                 Some(index) => &input_path[index..],
                 None => {
                     println!(
-                        "Warning: ininput_pathut file '{}' does not contain 'natives/', check if it's a valid input file",
+                        "Warning: input file '{}' does not contain 'natives/', check if it is a valid input file",
                         input_path
                     );
                     &input_path
