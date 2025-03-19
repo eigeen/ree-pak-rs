@@ -73,11 +73,11 @@ If `natives/` not found, tool will issue a warning.
 
 #### Tips
 
-If you have only one input to pack, you can drag-and-drop the folder onto the executable file. The tool will generate a output pak file with default name and options.
+If you have only one input to pack, you can drag-and-drop the folder onto the executable file. The tool will generate an output pak file with default name and options.
 
 ### Dump Info
 
-Dump information of a `PAK` file. The output is a JSON file that contains the file TOC, entries and file paths.
+Dump information of a `PAK` file. The output is a JSON file that contains the pak TOC, file entries and file paths.
 
 In other words, the output contains all the data except the actual file contents, even including unknown fields.
 

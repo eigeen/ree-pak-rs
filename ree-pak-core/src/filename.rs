@@ -21,7 +21,11 @@ impl FileNameTable {
         P: AsRef<Path>,
     {
         let content = std::fs::read(path.as_ref())?;
-        let file_names = Self::parse_raw_file_names(&content)?;
+        Self::from_bytes(&content)
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        let file_names = Self::parse_raw_file_names(bytes)?;
         Self::from_list(file_names)
     }
 

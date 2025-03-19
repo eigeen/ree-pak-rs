@@ -1,7 +1,4 @@
-use std::{
-    cmp,
-    io::{self, Read, Seek, Write},
-};
+use std::io::{self, Seek, Write};
 
 use indexmap::IndexMap;
 
@@ -19,9 +16,13 @@ pub enum PakWriteError {
     IO(#[from] std::io::Error),
     #[error("unsupported pak version {major}.{minor}")]
     UnsupportedVersion { major: u8, minor: u8 },
+    #[error("entry count exceeded the pre-allocated count.")]
+    EntryCountExceeded,
+    #[error("entry count is smaller than pre-allocated count.")]
+    EntryCountTooSmall,
 }
 
-pub struct PakWriter<W: Write + Seek> {
+pub struct PakWriter<W> {
     pub(crate) inner: W,
     pub(crate) files: IndexMap<String, PakEntry>,
     pub(crate) pak_options: PakOptions,
@@ -29,7 +30,7 @@ pub struct PakWriter<W: Write + Seek> {
     pub(crate) stats: PakWriterStats,
 }
 
-impl<W: Write + Seek + Read> PakWriter<W> {
+impl<W: Write + Seek> PakWriter<W> {
     pub fn new(inner: W, alloc_entry_count: u64) -> Self {
         Self::new_with_options(
             inner,
@@ -56,11 +57,14 @@ impl<W: Write + Seek + Read> PakWriter<W> {
     pub fn start_file(&mut self, name: FileName, options: FileOptions) -> Result<()> {
         // finish current file
         self.try_finish_file()?;
+        if self.files.len() >= self.pak_options.pre_allocate_entry_count as usize {
+            return Err(PakWriteError::EntryCountExceeded);
+        }
         // create a new PakEntry
         let entry = PakEntry {
             hash_name_lower: name.hash_lower_case(),
             hash_name_upper: name.hash_upper_case(),
-            offset: self.get_next_file_offset(),
+            offset: self.inner.stream_position()?,
             compressed_size: 0,
             uncompressed_size: 0,
             compression_type: options.compression_type,
@@ -68,7 +72,6 @@ impl<W: Write + Seek + Read> PakWriter<W> {
             checksum: options.checksum,
             unk_attr: options.unk_attr,
         };
-        self.inner.seek(io::SeekFrom::Start(entry.offset))?;
 
         self.files.insert(name.get_name().to_string(), entry);
         self.writing_to_file = true;
@@ -78,6 +81,10 @@ impl<W: Write + Seek + Read> PakWriter<W> {
     pub fn finish(mut self) -> Result<u64> {
         if self.writing_to_file {
             self.try_finish_file()?;
+        }
+        // check if entry count is correct
+        if self.files.len() as u32 != self.pak_options.pre_allocate_entry_count as u32 {
+            return Err(PakWriteError::EntryCountTooSmall);
         }
 
         self.inner.seek(io::SeekFrom::Start(0))?;
@@ -92,45 +99,7 @@ impl<W: Write + Seek + Read> PakWriter<W> {
             ..Default::default()
         };
         self.inner.write_all(&header.into_bytes())?;
-        // ensure the space is enough to write entries,
-        // or we need to move the written file data back
-        // to create more header spaces
-        let actual_header_size = self.calculate_header_size(self.files.len() as u64);
-        match actual_header_size.cmp(&self.stats.alloc_header_size) {
-            cmp::Ordering::Less => {
-                // move front file data
-                println!("Warning: header size is less than expected, need to move file data front.");
-                let diff = self.stats.alloc_header_size - actual_header_size;
-                for entry in self.files.values_mut() {
-                    // move data
-                    self.inner.seek(io::SeekFrom::Start(entry.offset))?;
-                    let mut data = vec![0; entry.compressed_size as usize];
-                    self.inner.read_exact(&mut data)?;
-                    self.inner.seek(io::SeekFrom::Start(entry.offset - diff))?;
-                    self.inner.write_all(&data)?;
-                    // update offset
-                    entry.offset -= diff;
-                }
-            }
-            cmp::Ordering::Equal => {}
-            cmp::Ordering::Greater => {
-                println!("Warning: header size is larger than expected, need to move file data back.");
-                // move back file data
-                let diff = actual_header_size - self.stats.alloc_header_size;
-                for entry in self.files.values_mut().rev() {
-                    // move data
-                    self.inner.seek(io::SeekFrom::Start(entry.offset))?;
-                    let mut data = vec![0; entry.compressed_size as usize];
-                    self.inner.read_exact(&mut data)?;
-                    self.inner.seek(io::SeekFrom::Start(entry.offset + diff))?;
-                    self.inner.write_all(&data)?;
-                    // update offset
-                    entry.offset += diff;
-                }
-            }
-        }
         // write entries
-        self.inner.seek(io::SeekFrom::Start(spec::Header::SIZE as u64))?;
         for entry in self.files.values().cloned() {
             self.inner.write_all(&entry.into_bytes_v2())?;
         }
@@ -147,7 +116,7 @@ impl<W: Write + Seek + Read> PakWriter<W> {
         }
 
         let alloc_header_size = self.calculate_header_size(self.pak_options.pre_allocate_entry_count);
-        self.stats.alloc_header_size = alloc_header_size;
+        self.inner.seek(io::SeekFrom::Start(alloc_header_size))?;
         Ok(())
     }
 
@@ -168,20 +137,9 @@ impl<W: Write + Seek + Read> PakWriter<W> {
     fn calculate_header_size(&self, entry_count: u64) -> u64 {
         spec::Header::SIZE as u64 + entry_count * spec::EntryV2::SIZE as u64
     }
-
-    fn get_last_file(&self) -> Option<&PakEntry> {
-        self.files.values().last()
-    }
-
-    fn get_next_file_offset(&self) -> u64 {
-        let last_file = self.get_last_file();
-        let data_seg_offset = last_file.map(|f| f.offset + f.compressed_size).unwrap_or(0);
-        let header_size = self.stats.alloc_header_size;
-        header_size + data_seg_offset
-    }
 }
 
-impl<W: Write + Seek> Write for PakWriter<W> {
+impl<W: Write> Write for PakWriter<W> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         if !self.writing_to_file {
             return Err(io::Error::new(io::ErrorKind::Other, "No file has been started"));
@@ -200,7 +158,7 @@ impl<W: Write + Seek> Write for PakWriter<W> {
     }
 }
 
-impl<W: Write + Seek> Drop for PakWriter<W> {
+impl<W> Drop for PakWriter<W> {
     fn drop(&mut self) {
         if self.writing_to_file {
             panic!("PakWriter dropped without calling finish()");
@@ -210,9 +168,7 @@ impl<W: Write + Seek> Drop for PakWriter<W> {
 
 #[derive(Debug, Default)]
 pub struct PakWriterStats {
-    start: u64,
     bytes_written: u64,
-    alloc_header_size: u64,
 }
 
 impl PakWriterStats {
@@ -221,7 +177,6 @@ impl PakWriterStats {
     }
 
     fn reset(&mut self) {
-        self.start = 0;
         self.bytes_written = 0;
     }
 }
@@ -294,9 +249,9 @@ impl FileOptions {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
+    use std::io::{Cursor, Read};
 
-    use crate::read;
+    use crate::read::{self, archive::PakArchiveReader};
 
     use super::*;
 
@@ -304,7 +259,7 @@ mod tests {
     fn test_pak_writer() {
         let mut vec = vec![];
         let buf = Cursor::new(&mut vec);
-        let mut writer = PakWriter::new(buf, 1);
+        let mut writer = PakWriter::new(buf, 2);
         writer.start_file("test.txt".into(), FileOptions::default()).unwrap();
         writer.write_all(b"hello world").unwrap();
         writer.start_file("a/test2.txt".into(), FileOptions::default()).unwrap();
@@ -316,5 +271,16 @@ mod tests {
         let mut reader = Cursor::new(vec);
         let archive = read::read_archive(&mut reader).unwrap();
         println!("{:#?}", archive);
+        let mut archive_reader = PakArchiveReader::new(reader, &archive);
+        for (i, entry) in archive.entries().iter().enumerate() {
+            let mut entry_reader = archive_reader.owned_entry_reader(entry.clone()).unwrap();
+            let mut buf = vec![0; entry.uncompressed_size as usize];
+            entry_reader.read_exact(&mut buf).unwrap();
+            if i == 0 {
+                assert_eq!(buf, b"hello world");
+            } else if i == 1 {
+                assert_eq!(buf, "你好，中国！".as_bytes());
+            }
+        }
     }
 }
