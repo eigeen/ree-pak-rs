@@ -5,9 +5,27 @@ use std::{
 };
 
 use indexmap::IndexSet;
-use ree_pak_core::write::{FileOptions, PakWriter};
+use ree_pak_core::{
+    filename::FileNameExt,
+    write::{FileOptions, PakWriter},
+};
 
 use crate::PackCommand;
+
+#[derive(Debug, Clone)]
+enum FileName {
+    Full(String),
+    Hash(u64),
+}
+
+impl FileName {
+    fn hash(&self) -> u64 {
+        match self {
+            FileName::Full(name) => name.hash_mixed(),
+            FileName::Hash(hash) => hash.hash_mixed(),
+        }
+    }
+}
 
 pub fn package(cmd: &PackCommand) -> anyhow::Result<()> {
     let input_paths = collect_inputs(&cmd.input)?;
@@ -40,24 +58,33 @@ pub fn package(cmd: &PackCommand) -> anyhow::Result<()> {
     let mut pak_writer = PakWriter::new(output_file, input_paths.len() as u64);
     for input_path in input_paths {
         // strip root dir before `natives/`
-        let file_name = if !input_path.starts_with("natives/") {
-            match input_path.find("natives/") {
-                Some(index) => &input_path[index..],
-                None => {
-                    println!(
-                        "Warning: input file '{}' does not contain 'natives/', check if it is a valid input file",
-                        input_path
-                    );
-                    &input_path
-                }
+        let file_name: FileName = if !input_path.starts_with("natives/") {
+            if let Some(index) = input_path.find("natives/") {
+                FileName::Full(input_path[index..].to_string())
+            } else if let Some(unk_index) = input_path.find("_Unknown/") {
+                get_unknown_file_name_hash(&input_path[unk_index..])
+                    .map(FileName::Hash)
+                    .unwrap_or_else(|| {
+                        println!(
+                            "Warning: failed to get hash of unknown file '{}', using full name instead",
+                            input_path
+                        );
+                        FileName::Full(input_path.to_string())
+                    })
+            } else {
+                println!(
+                    "Warning: input file '{}' does not contain 'natives/', check if it is a valid input file",
+                    input_path
+                );
+                FileName::Full(input_path.to_string())
             }
         } else {
-            &input_path
+            FileName::Full(input_path.to_string())
         };
 
-        println!("Packing file: {}", file_name);
+        println!("Packing file: {:?}", file_name);
         let data = std::fs::read(&input_path)?;
-        pak_writer.start_file(file_name, FileOptions::default())?;
+        pak_writer.start_file(file_name.hash(), FileOptions::default())?;
         pak_writer.write_all(&data)?;
     }
     pak_writer.finish()?;
@@ -85,4 +112,13 @@ fn collect_inputs(input_dir: impl AsRef<Path>) -> anyhow::Result<Vec<String>> {
     }
 
     Ok(files.into_iter().collect())
+}
+
+fn get_unknown_file_name_hash(file_path: &str) -> Option<u64> {
+    let file_stem = Path::new(file_path).file_stem()?.to_str()?;
+    if let Some(stem) = file_stem.strip_prefix("0x") {
+        u64::from_str_radix(stem, 16).ok()
+    } else {
+        u64::from_str_radix(file_stem, 16).ok()
+    }
 }
