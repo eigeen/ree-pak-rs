@@ -57,7 +57,7 @@ pub fn package(cmd: &PackCommand) -> anyhow::Result<()> {
 
         println!("Packing file: {}", file_name);
         let data = std::fs::read(&input_path)?;
-        pak_writer.start_file(file_name.into(), FileOptions::default())?;
+        pak_writer.start_file(file_name, FileOptions::default())?;
         pak_writer.write_all(&data)?;
     }
     pak_writer.finish()?;

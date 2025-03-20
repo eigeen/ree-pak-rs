@@ -3,7 +3,7 @@ use std::io::{self, Seek, Write};
 use indexmap::IndexMap;
 
 use crate::{
-    filename::FileName,
+    filename::FileNameExt,
     pak::{CompressionType, EncryptionType, FeatureFlags, PakEntry, PakHeader, UnkAttr},
     spec,
 };
@@ -18,13 +18,11 @@ pub enum PakWriteError {
     UnsupportedVersion { major: u8, minor: u8 },
     #[error("entry count exceeded the pre-allocated count.")]
     EntryCountExceeded,
-    #[error("entry count is smaller than pre-allocated count.")]
-    EntryCountTooSmall,
 }
 
 pub struct PakWriter<W> {
     pub(crate) inner: W,
-    pub(crate) files: IndexMap<String, PakEntry>,
+    pub(crate) files: IndexMap<u64, PakEntry>,
     pub(crate) pak_options: PakOptions,
     pub(crate) writing_to_file: bool,
     pub(crate) stats: PakWriterStats,
@@ -54,7 +52,7 @@ impl<W: Write + Seek> PakWriter<W> {
         Ok(this)
     }
 
-    pub fn start_file(&mut self, name: FileName, options: FileOptions) -> Result<()> {
+    pub fn start_file(&mut self, name: impl FileNameExt, options: FileOptions) -> Result<()> {
         // finish current file
         self.try_finish_file()?;
         if self.files.len() >= self.pak_options.pre_allocate_entry_count as usize {
@@ -73,7 +71,7 @@ impl<W: Write + Seek> PakWriter<W> {
             unk_attr: options.unk_attr,
         };
 
-        self.files.insert(name.get_name().to_string(), entry);
+        self.files.insert(name.hash_mixed(), entry);
         self.writing_to_file = true;
         Ok(())
     }
@@ -84,7 +82,7 @@ impl<W: Write + Seek> PakWriter<W> {
         }
         // check if entry count is correct
         if self.files.len() as u32 != self.pak_options.pre_allocate_entry_count as u32 {
-            return Err(PakWriteError::EntryCountTooSmall);
+            eprintln!("Warning: the actual file count is less than the pre-allocated count. It may cause space waste.");
         }
 
         self.inner.seek(io::SeekFrom::Start(0))?;
@@ -260,9 +258,9 @@ mod tests {
         let mut vec = vec![];
         let buf = Cursor::new(&mut vec);
         let mut writer = PakWriter::new(buf, 2);
-        writer.start_file("test.txt".into(), FileOptions::default()).unwrap();
+        writer.start_file("test.txt", FileOptions::default()).unwrap();
         writer.write_all(b"hello world").unwrap();
-        writer.start_file("a/test2.txt".into(), FileOptions::default()).unwrap();
+        writer.start_file("a/test2.txt", FileOptions::default()).unwrap();
         writer.write_all("你好，中国！".as_bytes()).unwrap();
         writer.finish().unwrap();
 
