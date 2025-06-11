@@ -2,7 +2,7 @@ use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 
 bitflags! {
-    #[derive(Debug, Clone, Copy, Default)]
+    #[derive(Debug, Clone, Copy, PartialEq, Default)]
     pub struct CompressionType: u8 {
         const NONE = 0;
         const DEFLATE = 1;
