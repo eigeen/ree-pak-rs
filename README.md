@@ -4,12 +4,39 @@ A high-performance Rust implementation for quickly unpacking RE Engine game pack
 
 Structural analysis and algorithms are derived from project [Ekey/REE.PAK.Tool](https://github.com/Ekey/REE.PAK.Tool). Thanks for your work!
 
-The unpack tool needs file list to work (`.list` files), you can get them here: [https://github.com/Ekey/REE.PAK.Tool/tree/main/Projects](https://github.com/Ekey/REE.PAK.Tool/tree/main/Projects), and put them in `assets/filelist` folder.
+The unpack tool needs file list to work (`.list` files), you can get full list files here: [https://github.com/Ekey/REE.PAK.Tool/tree/main/Projects](https://github.com/Ekey/REE.PAK.Tool/tree/main/Projects), and put them in `assets/filelist` folder.
+
+> [!NOTE]
+> Some data sources used by this tool do not originate from this repository.
+
+## Alert
+
+此仓库未来将会作为库使用，应用将会在对应的子仓库发布。
+在这里下载v0.3.0以后的版本：https://github.com/eigeen/ree-pak-gui/releases
+
+This repository will be used as a library in the future, and applications will be released in the corresponding sub-repositories.
+Download v0.3.0 later version here: https://github.com/eigeen/ree-pak-gui/releases
+
+## Download
+
+https://github.com/eigeen/ree-pak-gui/releases
+
+Documentation: https://github.com/eigeen/ree-pak-gui
+
+## GUI Version
+
+The GUI version provides a visual tree view that allows you to extract the specified files.
+
+Note that the GUI version can only **unpack** files, the packaging function is on the roadmap.
+
+Source: [eigeen/ree-pak-gui](https://github.com/eigeen/ree-pak-gui).
 
 ## CLI Version
 
 Command line interface version.
 
+> [!WARNING]
+> It has been discontinued after v0.3.0 and is expected to be merged into the GUI version in v0.4.0.
 
 ```
 Usage: ree-pak-cli.exe <COMMAND>
@@ -91,14 +118,6 @@ Options:
       --override           Override existing files
   -h, --help               Print help
 ```
-
-## GUI Version
-
-The GUI version provides a visual tree view that allows you to extract the specified files.
-
-Note that the GUI version can only **unpack** files, the packaging function is on the roadmap.
-
-See sub project [eigeen/ree-pak-gui](https://github.com/eigeen/ree-pak-gui).
 
 ## Benchmarks
 

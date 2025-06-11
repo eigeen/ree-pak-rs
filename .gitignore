@@ -3,9 +3,7 @@
 
 *.exe
 
-# unimplemented works:
-/ree-pak-core-old
-/ree-pak-core-async
+/ree-pak-tools
 
 # filelist
 *.list
