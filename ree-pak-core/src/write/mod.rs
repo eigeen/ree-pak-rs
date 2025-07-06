@@ -53,6 +53,10 @@ impl<W: Write + Seek> PakWriter<W> {
     }
 
     pub fn start_file(&mut self, name: impl FileNameExt, options: FileOptions) -> Result<()> {
+        self.start_file_hash(name.hash_mixed(), options)
+    }
+
+    pub fn start_file_hash(&mut self, hash: u64, options: FileOptions) -> Result<()> {
         // finish current file
         self.try_finish_file()?;
         if self.files.len() >= self.pak_options.pre_allocate_entry_count as usize {
@@ -60,8 +64,8 @@ impl<W: Write + Seek> PakWriter<W> {
         }
         // create a new PakEntry
         let entry = PakEntry {
-            hash_name_lower: name.hash_lower_case(),
-            hash_name_upper: name.hash_upper_case(),
+            hash_name_lower: hash.hash_lower_case(),
+            hash_name_upper: hash.hash_upper_case(),
             offset: self.inner.stream_position()?,
             compressed_size: 0,
             uncompressed_size: 0,
@@ -71,7 +75,7 @@ impl<W: Write + Seek> PakWriter<W> {
             unk_attr: options.unk_attr,
         };
 
-        self.files.insert(name.hash_mixed(), entry);
+        self.files.insert(hash, entry);
         self.writing_to_file = true;
         Ok(())
     }
