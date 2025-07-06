@@ -19,6 +19,16 @@ impl Serialize for CompressionType {
     }
 }
 
+impl<'de> Deserialize<'de> for CompressionType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = u8::deserialize(deserializer)?;
+        Ok(CompressionType::from_bits_truncate(value))
+    }
+}
+
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EncryptionType {

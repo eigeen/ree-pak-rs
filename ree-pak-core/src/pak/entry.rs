@@ -1,11 +1,11 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::serde_util::{serde_u32_hex, serde_u64_hex};
 use crate::spec;
 
 use super::flag::{CompressionType, EncryptionType, UnkAttr};
 
-#[derive(Clone, Default, Serialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct PakEntry {
     #[serde(with = "serde_u32_hex")]
     pub(crate) hash_name_lower: u32,
