@@ -1,8 +1,9 @@
 use std::io::Read;
 
 use crate::error::Result;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, FromBytes, IntoBytes, Immutable, KnownLayout)]
 #[repr(C)]
 pub struct EntryV1 {
     pub offset: u64,
@@ -20,18 +21,15 @@ impl EntryV1 {
     {
         let mut buf = [0u8; Self::SIZE];
         reader.read_exact(&mut buf)?;
-        unsafe { Ok(std::mem::transmute::<[u8; Self::SIZE], Self>(buf)) }
+        Ok(Self::read_from_bytes(&buf).unwrap())
     }
 
     pub fn into_bytes(self) -> [u8; Self::SIZE] {
-        unsafe {
-            let bytes: [u8; Self::SIZE] = std::mem::transmute(self);
-            bytes
-        }
+        self.as_bytes().try_into().unwrap()
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, FromBytes, IntoBytes, Immutable, KnownLayout)]
 #[repr(C)]
 pub struct EntryV2 {
     pub hash_name_lower: u32,
@@ -52,14 +50,11 @@ impl EntryV2 {
     {
         let mut buf = [0u8; Self::SIZE];
         reader.read_exact(&mut buf)?;
-        unsafe { Ok(std::mem::transmute::<[u8; Self::SIZE], Self>(buf)) }
+        Ok(Self::read_from_bytes(&buf).unwrap())
     }
 
     pub fn into_bytes(self) -> [u8; Self::SIZE] {
-        unsafe {
-            let bytes: [u8; Self::SIZE] = std::mem::transmute(self);
-            bytes
-        }
+        self.as_bytes().try_into().unwrap()
     }
 }
 
@@ -71,5 +66,25 @@ mod tests {
     fn assert_size() {
         assert_eq!(std::mem::size_of::<EntryV1>(), 24);
         assert_eq!(std::mem::size_of::<EntryV2>(), 48);
+    }
+
+    #[test]
+    fn test_read_write() {
+        let bytes = &[
+            0x34, 0x2F, 0x6E, 0xC2, 0xEB, 0xBE, 0xE6, 0x80, 0x95, 0xFA, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x8A,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x8A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+        let entry = EntryV2::read_from_bytes(bytes).unwrap();
+        assert_eq!(entry.hash_name_lower, 3262000948);
+        assert_eq!(entry.hash_name_upper, 2162605803);
+        assert_eq!(entry.offset, 457365);
+        assert_eq!(entry.compressed_size, 35392);
+        assert_eq!(entry.uncompressed_size, 35392);
+        assert_eq!(entry.attributes, 0);
+        assert_eq!(entry.checksum, 0);
+
+        let write_bytes = entry.into_bytes();
+        assert_eq!(write_bytes, *bytes);
     }
 }

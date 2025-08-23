@@ -1,6 +1,6 @@
 use std::{io::Read, sync::LazyLock};
 
-use byteorder::{ReadBytesExt, LE};
+use byteorder::{LE, ReadBytesExt};
 use num::BigUint;
 
 const MODULUS: [u8; 33] = [

@@ -1,8 +1,9 @@
 use std::io::Read;
 
 use crate::error::Result;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, FromBytes, IntoBytes, Immutable, KnownLayout)]
 #[repr(C)]
 pub struct Header {
     pub magic: [u8; 4],
@@ -22,10 +23,20 @@ impl Header {
     {
         let mut buf = [0u8; Self::SIZE];
         reader.read_exact(&mut buf)?;
-        unsafe { Ok(std::mem::transmute::<[u8; Self::SIZE], Self>(buf)) }
+        Ok(Self::read_from_bytes(&buf).unwrap())
     }
 
     pub fn into_bytes(self) -> [u8; Self::SIZE] {
-        unsafe { std::mem::transmute::<Self, [u8; Self::SIZE]>(self) }
+        self.as_bytes().try_into().unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn assert_size() {
+        assert_eq!(Header::SIZE, 16);
     }
 }

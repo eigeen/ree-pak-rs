@@ -7,8 +7,9 @@ use super::FeatureFlags;
 
 const HEADER_MAGIC: &[u8; 4] = b"KPKA";
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, derive_more::Debug)]
 pub struct PakHeader {
+    #[debug("{magic:02x?}")]
     pub(crate) magic: [u8; 4],
     pub(crate) major_version: u8,
     pub(crate) minor_version: u8,
@@ -16,6 +17,7 @@ pub struct PakHeader {
     pub(crate) total_files: u32,
     // didn't really understand this field, probably signature or fingerprint.
     #[serde(with = "serde_u32_hex")]
+    #[debug("{hash:08x}")]
     pub(crate) hash: u32,
     /// another unknown field
     /// if feature contains specific flag,
@@ -120,28 +122,5 @@ impl From<PakHeader> for spec::Header {
             total_files: value.total_files,
             hash: value.hash,
         }
-    }
-}
-
-impl std::fmt::Debug for PakHeader {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PakHeader")
-            .field("magic", &format!("{:02x?}", self.magic))
-            .field("major_version", &self.major_version)
-            .field("minor_version", &self.minor_version)
-            .field("feature", &self.feature)
-            .field("total_files", &self.total_files)
-            .field("hash", &format!("{:08x}", self.hash))
-            .finish()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn assert_size() {
-        assert_eq!(std::mem::size_of::<PakHeader>(), 16);
     }
 }

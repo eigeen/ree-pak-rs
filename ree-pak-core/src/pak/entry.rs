@@ -5,11 +5,13 @@ use crate::spec;
 
 use super::flag::{CompressionType, EncryptionType, UnkAttr};
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize, derive_more::Debug)]
 pub struct PakEntry {
     #[serde(with = "serde_u32_hex")]
+    #[debug("0x{hash_name_lower:08x}")]
     pub(crate) hash_name_lower: u32,
     #[serde(with = "serde_u32_hex")]
+    #[debug("0x{hash_name_upper:08x}")]
     pub(crate) hash_name_upper: u32,
     pub(crate) offset: u64,
     pub(crate) compressed_size: u64,
@@ -17,6 +19,7 @@ pub struct PakEntry {
     pub(crate) compression_type: CompressionType,
     pub(crate) encryption_type: EncryptionType,
     #[serde(with = "serde_u64_hex")]
+    #[debug("0x{checksum:16x}")]
     pub(crate) checksum: u64,
     pub(crate) unk_attr: UnkAttr,
 }
@@ -105,20 +108,5 @@ impl From<PakEntry> for spec::EntryV2 {
             attributes: attr,
             checksum: value.checksum,
         }
-    }
-}
-
-impl std::fmt::Debug for PakEntry {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PakEntry")
-            .field("hash_name_lower", &format!("{:08x}", self.hash_name_lower))
-            .field("hash_name_upper", &format!("{:08x}", self.hash_name_upper))
-            .field("offset", &self.offset)
-            .field("compressed_size", &self.compressed_size)
-            .field("uncompressed_size", &self.uncompressed_size)
-            .field("compression_type", &self.compression_type)
-            .field("encryption_type", &self.encryption_type)
-            .field("checksum", &format!("{:016x}", self.checksum))
-            .finish()
     }
 }
