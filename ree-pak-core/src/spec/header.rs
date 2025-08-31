@@ -14,6 +14,8 @@ pub struct Header {
     pub hash: u32,
 }
 
+static_assertions::assert_eq_size!(Header, [u8; 16]);
+
 impl Header {
     pub const SIZE: usize = std::mem::size_of::<Self>();
 
@@ -28,15 +30,5 @@ impl Header {
 
     pub fn into_bytes(self) -> [u8; Self::SIZE] {
         self.as_bytes().try_into().unwrap()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn assert_size() {
-        assert_eq!(Header::SIZE, 16);
     }
 }

@@ -4045,6 +4045,7 @@ dependencies = [
  "rayon",
  "rustc-hash",
  "serde",
+ "static_assertions",
  "thiserror 2.0.14",
  "zerocopy",
  "zstd",

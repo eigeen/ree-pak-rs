@@ -12,6 +12,8 @@ pub struct EntryV1 {
     pub hash_name_upper: u32,
 }
 
+static_assertions::assert_eq_size!(EntryV1, [u8; 24]);
+
 impl EntryV1 {
     pub const SIZE: usize = std::mem::size_of::<Self>();
 
@@ -41,6 +43,8 @@ pub struct EntryV2 {
     pub checksum: u64,
 }
 
+static_assertions::assert_eq_size!(EntryV2, [u8; 48]);
+
 impl EntryV2 {
     pub const SIZE: usize = std::mem::size_of::<Self>();
 
@@ -61,12 +65,6 @@ impl EntryV2 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn assert_size() {
-        assert_eq!(std::mem::size_of::<EntryV1>(), 24);
-        assert_eq!(std::mem::size_of::<EntryV2>(), 48);
-    }
 
     #[test]
     fn test_read_write() {
