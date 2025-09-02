@@ -27,7 +27,7 @@ pub enum PakReaderError {
 
 impl PakReaderError {
     pub fn into_io_error(self) -> std::io::Error {
-        std::io::Error::new(std::io::ErrorKind::Other, self.to_string())
+        std::io::Error::other(self.to_string())
     }
 }
 

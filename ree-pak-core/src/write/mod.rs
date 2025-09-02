@@ -144,7 +144,7 @@ impl<W: Write + Seek> PakWriter<W> {
 impl<W: Write> Write for PakWriter<W> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         if !self.writing_to_file {
-            return Err(io::Error::new(io::ErrorKind::Other, "No file has been started"));
+            return Err(io::Error::other("No file has been started"));
         }
         if buf.is_empty() {
             return Ok(0);
