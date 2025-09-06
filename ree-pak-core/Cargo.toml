@@ -2,7 +2,7 @@
 name = "ree-pak-core"
 version = "0.4.2"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [dependencies]
 byteorder.workspace = true
