@@ -2,7 +2,6 @@ use std::{collections::HashMap, io::Read, path::Path};
 
 use nohash::BuildNoHashHasher;
 use parking_lot::Mutex;
-use rayon::iter::{ParallelBridge, ParallelIterator};
 
 use crate::error::{PakError, Result};
 
@@ -26,12 +25,20 @@ impl FileNameTable {
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         let file_names = Self::parse_raw_file_names(bytes)?;
-        Self::from_list(file_names)
+        let iter = file_names.lines().filter_map(|line| {
+            if line.starts_with('#') {
+                None
+            } else {
+                Some(line.to_string())
+            }
+        });
+
+        Self::from_list(iter)
     }
 
-    pub fn from_list(file_names: String) -> Result<Self> {
+    pub fn from_list(file_names: impl IntoIterator<Item = String>) -> Result<Self> {
         let this = Mutex::new(Self::default());
-        file_names.lines().par_bridge().for_each(|line| {
+        file_names.into_iter().for_each(|line| {
             let file_name = FileNameFull::new(&line.replace('\\', "/"));
             let hash = file_name.hash_mixed();
             this.lock().file_names.insert(hash, file_name);
