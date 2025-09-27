@@ -18,4 +18,6 @@ pub enum PakError {
 
     #[error("Entry index out of bounds")]
     EntryIndexOutOfBounds,
+    #[error("Invalid UTF-16 sequence")]
+    InvalidUtf16,
 }

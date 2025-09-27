@@ -3,9 +3,9 @@ use std::io::{self, Seek, Write};
 use indexmap::IndexMap;
 
 use crate::{
-    filename::FileNameExt,
     pak::{CompressionType, EncryptionType, FeatureFlags, PakEntry, PakHeader, UnkAttr},
     spec,
+    utf16_hash::Utf16HashExt,
 };
 
 type Result<T> = std::result::Result<T, PakWriteError>;
@@ -52,8 +52,8 @@ impl<W: Write + Seek> PakWriter<W> {
         Ok(this)
     }
 
-    pub fn start_file(&mut self, name: impl FileNameExt, options: FileOptions) -> Result<()> {
-        self.start_file_hash(name.hash_mixed(), options)
+    pub fn start_file(&mut self, path: impl Utf16HashExt, options: FileOptions) -> Result<()> {
+        self.start_file_hash(path.hash_mixed(), options)
     }
 
     pub fn start_file_hash(&mut self, hash: u64, options: FileOptions) -> Result<()> {

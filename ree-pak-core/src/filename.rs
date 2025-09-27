@@ -3,15 +3,18 @@ use std::{collections::HashMap, io::Read, path::Path};
 use nohash::BuildNoHashHasher;
 use parking_lot::Mutex;
 
-use crate::error::{PakError, Result};
+use crate::{
+    error::{PakError, Result},
+    utf16_hash::{Utf16HashExt, Utf16LeString},
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct FileNameTable {
-    file_names: HashMap<u64, FileNameFull, BuildNoHashHasher<u64>>,
+    file_names: HashMap<u64, Utf16LeString, BuildNoHashHasher<u64>>,
 }
 
 impl FileNameTable {
-    pub fn file_names(&self) -> impl Iterator<Item = (&u64, &FileNameFull)> {
+    pub fn file_names(&self) -> impl Iterator<Item = (&u64, &Utf16LeString)> {
         self.file_names.iter()
     }
 
@@ -39,7 +42,7 @@ impl FileNameTable {
     pub fn from_list(file_names: impl IntoIterator<Item = String>) -> Result<Self> {
         let this = Mutex::new(Self::default());
         file_names.into_iter().for_each(|line| {
-            let file_name = FileNameFull::new(&line.replace('\\', "/"));
+            let file_name = Utf16LeString::new_from_str(&line.replace('\\', "/"));
             let hash = file_name.hash_mixed();
             this.lock().file_names.insert(hash, file_name);
         });
@@ -48,12 +51,12 @@ impl FileNameTable {
     }
 
     pub fn push_str(&mut self, file_name: &str) {
-        let file_name = FileNameFull::new(&file_name.replace('\\', "/"));
+        let file_name = Utf16LeString::new_from_str(&file_name.replace('\\', "/"));
         let hash = file_name.hash_mixed();
         self.file_names.insert(hash, file_name);
     }
 
-    pub fn get_file_name(&self, hash: u64) -> Option<&FileNameFull> {
+    pub fn get_file_name(&self, hash: u64) -> Option<&Utf16LeString> {
         self.file_names.get(&hash)
     }
 
@@ -72,136 +75,11 @@ impl FileNameTable {
     }
 }
 
-pub trait FileNameExt {
-    fn hash_lower_case(&self) -> u32;
-    fn hash_upper_case(&self) -> u32;
-
-    fn hash_mixed(&self) -> u64 {
-        let upper = self.hash_upper_case() as u64;
-        let lower = self.hash_lower_case() as u64;
-
-        (upper << 32) | lower
-    }
-}
-
-/// Full file name with name string.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileNameFull {
-    name: String,
-}
-
-impl FileNameFull {
-    pub fn new(name: &str) -> Self {
-        Self { name: name.to_string() }
-    }
-
-    pub fn get_name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn mix_hash(lower: u32, upper: u32) -> u64 {
-        let upper = upper as u64;
-        let lower = lower as u64;
-
-        (upper << 32) | lower
-    }
-}
-
-impl FileNameExt for FileNameFull {
-    fn hash_lower_case(&self) -> u32 {
-        let bytes: Vec<u8> = self
-            .name
-            .to_lowercase()
-            .encode_utf16()
-            .flat_map(|c| c.to_le_bytes())
-            .collect();
-
-        murmur3_hash(&bytes[..]).unwrap()
-    }
-
-    fn hash_upper_case(&self) -> u32 {
-        let bytes: Vec<u8> = self
-            .name
-            .to_uppercase()
-            .encode_utf16()
-            .flat_map(|c| c.to_le_bytes())
-            .collect();
-
-        murmur3_hash(&bytes[..]).unwrap()
-    }
-}
-
-impl From<&str> for FileNameFull {
-    fn from(s: &str) -> Self {
-        Self::new(s)
-    }
-}
-
-impl From<String> for FileNameFull {
-    fn from(s: String) -> Self {
-        Self::new(&s)
-    }
-}
-
-impl FileNameExt for &str {
-    fn hash_lower_case(&self) -> u32 {
-        let full = FileNameFull::new(self);
-        full.hash_lower_case()
-    }
-
-    fn hash_upper_case(&self) -> u32 {
-        let full = FileNameFull::new(self);
-        full.hash_upper_case()
-    }
-}
-
-impl FileNameExt for String {
-    fn hash_lower_case(&self) -> u32 {
-        let full = FileNameFull::new(self.as_str());
-        full.hash_lower_case()
-    }
-
-    fn hash_upper_case(&self) -> u32 {
-        let full = FileNameFull::new(self.as_str());
-        full.hash_upper_case()
-    }
-}
-
-impl FileNameExt for u64 {
-    fn hash_lower_case(&self) -> u32 {
-        (*self & 0xFFFFFFFF) as u32
-    }
-
-    fn hash_upper_case(&self) -> u32 {
-        (*self >> 32) as u32
-    }
-}
-
-pub fn murmur3_hash<R: std::io::Read>(mut reader: R) -> Result<u32> {
-    Ok(murmur3::murmur3_32(&mut reader, 0xFFFFFFFF)?)
-}
-
 #[cfg(test)]
 mod tests {
     use std::io::Write;
 
     use super::*;
-
-    #[test]
-    fn test_file_name_full() {
-        let filename = FileNameFull::new("natives/stm/camera/collisionfilter/defaultcamera.cfil.7");
-        assert_eq!(filename.hash_lower_case(), 0x65B486A1);
-        assert_eq!(filename.hash_upper_case(), 0x958EDD0C);
-        assert_eq!(filename.hash_mixed(), 0x958EDD0C65B486A1);
-    }
-
-    #[test]
-    fn test_file_name_hash() {
-        let file_hash: u64 = 0x958EDD0C65B486A1;
-        assert_eq!(file_hash.hash_lower_case(), 0x65B486A1);
-        assert_eq!(file_hash.hash_upper_case(), 0x958EDD0C);
-        assert_eq!(file_hash.hash_mixed(), 0x958EDD0C65B486A1);
-    }
 
     #[ignore]
     #[test]

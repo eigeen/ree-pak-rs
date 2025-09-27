@@ -1,6 +1,6 @@
 [package]
 name = "ree-pak-core"
-version = "0.4.2"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.88"
 
@@ -21,6 +21,18 @@ flate2 = "1.0"
 
 num = { version = "0.4", features = ["num-bigint"] }
 indexmap = "2.8"
-derive_more = { version = "2.0.1", features = ["debug"] }
+derive_more = { version = "2.0", features = ["debug"] }
 zerocopy.workspace = true
-static_assertions = "1.1.0"
+static_assertions = "1.1"
+
+[dev-dependencies]
+criterion = "0.7"
+
+[features]
+default = []
+legacy-utf16-hash = []
+
+# enable legacy-utf16-hash feature for legacy comparison
+[[bench]]
+name = "utf16_hash_bench"
+harness = false

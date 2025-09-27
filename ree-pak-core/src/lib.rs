@@ -2,6 +2,7 @@ pub mod error;
 pub mod filename;
 pub mod pak;
 pub mod read;
+pub mod utf16_hash;
 pub mod write;
 
 mod serde_util;
