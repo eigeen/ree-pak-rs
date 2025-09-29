@@ -46,7 +46,7 @@ pub fn dump_info(cmd: &DumpInfoCommand) -> anyhow::Result<()> {
             .map(|entry| {
                 let path = filename_table
                     .get_file_name(entry.hash())
-                    .map(|fname| fname.get_name().to_string());
+                    .map(|fname| fname.to_string().unwrap());
                 EntryWithPath {
                     entry: entry.clone(),
                     path,
@@ -93,8 +93,8 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
                         if filters.is_empty() {
                             return true;
                         }
-                        let file_name = file_name.get_name();
-                        filters.iter().any(|f| f.is_match(file_name))
+                        let file_name = file_name.to_string().unwrap();
+                        filters.iter().any(|f| f.is_match(&file_name))
                     }
                     None => !cmd.skip_unknown,
                 }
@@ -237,7 +237,7 @@ fn process_entry(
     // output file path
     let relative_path = file_name_table
         .get_file_name(entry.hash())
-        .map(|fname| fname.get_name().to_string())
+        .map(|fname| fname.to_string().unwrap())
         .unwrap_or_else(|| format!("_Unknown/{:08X}", entry.hash()));
     let file_output_path = output_path.join(relative_path);
     let file_dir = file_output_path.parent().unwrap();

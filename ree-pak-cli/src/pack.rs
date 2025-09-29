@@ -6,7 +6,7 @@ use std::{
 
 use indexmap::IndexSet;
 use ree_pak_core::{
-    filename::FileNameExt,
+    utf16_hash::Utf16HashExt,
     write::{FileOptions, PakWriter},
 };
 
