@@ -89,7 +89,7 @@ impl TryFrom<spec::Header> for PakHeader {
                 found: this.magic,
             });
         }
-        if ![2, 4].contains(&this.major_version) || ![0, 1].contains(&this.minor_version) {
+        if ![2, 4].contains(&this.major_version) || ![0, 1, 2].contains(&this.minor_version) {
             return Err(Self::Error::UnsupportedVersion {
                 major: this.major_version,
                 minor: this.minor_version,

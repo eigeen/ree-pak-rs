@@ -62,7 +62,7 @@ bitflags! {
         const BIT02 = 1 << 2;
         const ENTRY_ENCRYPTION = 1 << 3;
         const EXTRA_U32 = 1 << 4;
-        const BIT05 = 1 << 5;
+        const UNK_1 = 1 << 5;
         const BIT06 = 1 << 6;
         const BIT07 = 1 << 7;
         const BIT08 = 1 << 8;
@@ -78,7 +78,7 @@ bitflags! {
 
 impl FeatureFlags {
     pub fn check_supported(&self) -> bool {
-        let supported_flags = FeatureFlags::ENTRY_ENCRYPTION | FeatureFlags::EXTRA_U32;
+        let supported_flags = FeatureFlags::ENTRY_ENCRYPTION | FeatureFlags::EXTRA_U32 | FeatureFlags::UNK_1;
         self.bits() & !supported_flags.bits() == 0
     }
 }
