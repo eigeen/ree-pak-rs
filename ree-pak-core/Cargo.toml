@@ -1,6 +1,6 @@
 [package]
 name = "ree-pak-core"
-version = "0.5.1"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.88"
 
@@ -11,9 +11,10 @@ nohash.workspace = true
 rustc-hash.workspace = true
 thiserror.workspace = true
 rayon.workspace = true
-bitflags.workspace = true
+bitflags = "2.9"
 parking_lot.workspace = true
 serde = { workspace = true, features = ["derive"] }
+memmap2 = "0.9"
 
 # compression
 zstd.workspace = true

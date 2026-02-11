@@ -140,7 +140,7 @@ dependencies = [
  "parking_lot",
  "rayon",
  "re-tex",
- "ree-pak-core 0.5.1",
+ "ree-pak-core 0.6.0",
  "ree-path-searcher",
  "rustc-hash",
  "self-replace",
@@ -4419,7 +4419,7 @@ dependencies = [
  "indicatif 0.17.11",
  "parking_lot",
  "rayon",
- "ree-pak-core 0.5.1",
+ "ree-pak-core 0.6.0",
  "regex",
  "serde",
  "serde_json",
@@ -4452,7 +4452,7 @@ dependencies = [
 
 [[package]]
 name = "ree-pak-core"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "bitflags 2.9.4",
  "byteorder",
@@ -4460,6 +4460,7 @@ dependencies = [
  "derive_more 2.0.1",
  "flate2",
  "indexmap 2.11.0",
+ "memmap2",
  "murmur3",
  "nohash",
  "num",

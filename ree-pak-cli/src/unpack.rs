@@ -1,18 +1,11 @@
-use std::{
-    fs::{File, OpenOptions},
-    io::{BufReader, Write},
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::{path::Path, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::Context;
 use indicatif::{ProgressBar, ProgressStyle};
-use parking_lot::Mutex;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use ree_pak_core::{
+    extract::ExtractEvent,
     filename::FileNameTable,
-    pak::{PakArchive, PakEntry},
-    read::archive::PakArchiveReader,
+    pakfile::{PakBackend, PakFile},
 };
 use regex::Regex;
 use serde::Serialize;
@@ -72,93 +65,70 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
     // load project file name table
     let file_name_table = load_filename_table(&cmd.project)?;
 
-    // load PAK file
-    let file = std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
-    let mut reader = std::io::BufReader::new(file);
-    let archive = ree_pak_core::read::read_archive(&mut reader)?;
-    let archive = if !cmd.filter.is_empty() || cmd.skip_unknown {
-        // apply filter
-        let filters = cmd
-            .filter
-            .iter()
-            .map(|f| Regex::new(f))
-            .collect::<Result<Vec<_>, _>>()?;
-        let entries = archive
-            .entries()
-            .iter()
-            .filter(|&entry| {
-                let file_name = file_name_table.get_file_name(entry.hash());
-                match file_name {
-                    Some(file_name) => {
-                        if filters.is_empty() {
-                            return true;
-                        }
-                        let file_name = file_name.to_string().unwrap();
-                        filters.iter().any(|f| f.is_match(&file_name))
-                    }
-                    None => !cmd.skip_unknown,
-                }
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        PakArchive::new(archive.header().clone(), entries)
-    } else {
-        archive
-    };
-
-    let archive_reader = Mutex::new(PakArchiveReader::new(reader, &archive));
-
     // output path
     let output_path = output_path(&cmd.output, &cmd.input);
 
-    // extract files
-    let bar = ProgressBar::new(archive.entries().len() as u64);
+    // open pak
+    let pak = PakFile::builder()
+        .backend(PakBackend::Mmap)
+        .open(&cmd.input)
+        .context(format!("Input file `{}` not found.", &cmd.input))?;
+
+    // apply filter
+    let filters = cmd
+        .filter
+        .iter()
+        .map(|f| Regex::new(f))
+        .collect::<Result<Vec<_>, _>>()?;
+    let filters = Arc::new(filters);
+
+    // progress
+    let bar = ProgressBar::new(0);
     bar.set_style(ProgressStyle::default_bar().template("{pos}/{len} files {wide_bar} elapsed: {elapsed} eta: {eta}")?);
     bar.enable_steady_tick(Duration::from_millis(100));
     bar.println(format!("Output directory: `{}`", output_path.display()));
 
-    let results: Mutex<Vec<anyhow::Result<()>>> = Mutex::new(vec![]);
-    archive
-        .entries()
-        .par_iter()
-        .try_for_each(|entry| -> anyhow::Result<()> {
-            let result = process_entry(
-                entry,
-                &file_name_table,
-                &output_path,
-                &archive_reader,
-                &bar,
-                cmd.r#override,
-            );
-            if let Err(e) = &result {
-                bar.println(format!(
-                    "Error processing entry: {:#}. Path: {:?}\nEntry: {:?}",
-                    e,
-                    file_name_table.get_file_name(entry.hash()).unwrap(),
-                    entry
-                ));
-                if cmd.ignore_error {
-                    // ignore error and continue, save result
-                    results.lock().push(result);
-                    return Ok(());
+    let report = pak
+        .extractor(&output_path)
+        .file_name_table(file_name_table)
+        .skip_unknown(cmd.skip_unknown)
+        .overwrite(cmd.r#override)
+        .continue_on_error(cmd.ignore_error)
+        .filter({
+            let filters = Arc::clone(&filters);
+            move |_entry, path| {
+                if filters.is_empty() {
+                    return true;
                 }
-            };
-            result
-        })?;
+                let Some(path) = path else { return false };
+                filters.iter().any(|f| f.is_match(path))
+            }
+        })
+        .on_event({
+            let bar = bar.clone();
+            move |event| match event {
+                ExtractEvent::Start { total } => bar.set_length(total as u64),
+                ExtractEvent::FileDone { error, .. } => {
+                    if let Some(error) = error {
+                        bar.println(format!("Error: {error}"));
+                    }
+                    bar.inc(1);
+                }
+                ExtractEvent::Finish { .. } => bar.finish(),
+                _ => {}
+            }
+        })
+        .run()?;
 
-    bar.finish();
-
-    let results = results.into_inner();
-    if !results.is_empty() {
-        let errors = results.iter().filter(|r| r.is_err()).collect::<Vec<_>>();
-        println!("Done with {} errors", errors.len());
-        if errors.len() < 30 {
-            println!("Errors: {:?}", errors);
+    if report.failed > 0 {
+        println!("Done with {} errors", report.failed);
+        if report.errors.len() < 30 {
+            println!("Errors: {:?}", report.errors);
         } else {
-            println!("Errors: {:?}", &errors[0..30]);
+            println!("Errors: {:?}", &report.errors[0..30]);
             println!(
                 "Displaying only the first 30 errors. Too many errors to display ({}).",
-                errors.len()
+                report.errors.len()
             );
         }
     } else {
@@ -219,53 +189,4 @@ fn load_filename_table(project_name_or_path: &str) -> anyhow::Result<FileNameTab
             project_name_or_path
         );
     }
-}
-
-fn process_entry(
-    entry: &PakEntry,
-    file_name_table: &FileNameTable,
-    output_path: &Path,
-    archive_reader: &Mutex<PakArchiveReader<BufReader<File>>>,
-    bar: &ProgressBar,
-    r#override: bool,
-) -> anyhow::Result<()> {
-    let mut entry_reader = {
-        let mut r = archive_reader.lock();
-        (*r).owned_entry_reader(entry.clone())?
-    };
-
-    // output file path
-    let relative_path = file_name_table
-        .get_file_name(entry.hash())
-        .map(|fname| fname.to_string().unwrap())
-        .unwrap_or_else(|| format!("_Unknown/{:08X}", entry.hash()));
-    let file_output_path = output_path.join(relative_path);
-    let file_dir = file_output_path.parent().unwrap();
-
-    if !file_dir.exists() {
-        std::fs::create_dir_all(file_dir)?;
-    }
-
-    let mut data = vec![];
-    std::io::copy(&mut entry_reader, &mut data)?;
-
-    let mut open_options = OpenOptions::new();
-    if r#override {
-        open_options.create(true).write(true).truncate(true);
-    } else {
-        open_options.create_new(true).write(true);
-    }
-    let mut file = open_options.open(&file_output_path)?;
-    file.write_all(&data)?;
-
-    // guess unknown file extension
-    if file_output_path.extension().is_none() {
-        if let Some(ext) = entry_reader.determine_extension() {
-            let new_path = file_output_path.with_extension(ext);
-            std::fs::rename(file_output_path, new_path)?;
-        }
-    }
-
-    bar.inc(1);
-    Ok(())
 }

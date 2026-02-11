@@ -20,4 +20,10 @@ pub enum PakError {
     EntryIndexOutOfBounds,
     #[error("Invalid UTF-16 sequence")]
     InvalidUtf16,
+
+    #[error("Invalid entry range: offset={offset}, size={size}, file_size={file_size}")]
+    InvalidEntryRange { offset: u64, size: u64, file_size: u64 },
+
+    #[error("Failed to build rayon thread pool: {0}")]
+    ThreadPoolBuild(String),
 }

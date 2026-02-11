@@ -1,4 +1,4 @@
-use std::io::{BufRead, Cursor, Read, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, Cursor, Read, Seek, SeekFrom};
 
 use crate::error::Result;
 use crate::pak::{self, EncryptionType, PakEntry};
@@ -74,6 +74,29 @@ impl PakEntryReader<Cursor<Vec<u8>>> {
     //         magic_buf: [0u8; 8],
     //     })
     // }
+}
+
+impl PakEntryReader<Box<dyn BufRead + Send>> {
+    /// Create a new entry reader from a boxed raw (compressed) reader.
+    ///
+    /// - For non-encrypted entries, the raw reader will be used directly.
+    /// - For encrypted entries, the raw bytes will be fully read, decrypted, then wrapped as a new reader.
+    pub fn new_boxed(mut raw: Box<dyn BufRead + Send>, entry: PakEntry) -> Result<Self> {
+        if entry.encryption_type() != EncryptionType::None {
+            let mut encrypted = Vec::with_capacity(entry.compressed_size() as usize);
+            raw.read_to_end(&mut encrypted)?;
+
+            let decrypted = pak::decrypt_resource_data(&mut &encrypted[..])?;
+            raw = Box::new(BufReader::new(Cursor::new(decrypted)));
+        }
+
+        let r = CompressedReader::new(raw, entry.compression_type())?;
+        Ok(Self {
+            reader: r,
+            magic_buf: [0u8; 8],
+            magic_read_length: 0,
+        })
+    }
 }
 
 impl<R> PakEntryReader<R>
