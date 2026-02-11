@@ -5,17 +5,33 @@ use indicatif::{ProgressBar, ProgressStyle};
 use ree_pak_core::{
     extract::ExtractEvent,
     filename::FileNameTable,
+    pak::FeatureFlags,
     pakfile::{PakBackend, PakFile},
+    read,
 };
 use regex::Regex;
 use serde::Serialize;
 
-use crate::{DumpInfoCommand, UnpackCommand};
+use crate::{CliPakBackend, DumpInfoCommand, UnpackCommand};
 
 #[derive(Debug, Serialize)]
 struct PakInfo {
     header: ree_pak_core::pak::PakHeader,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chunk_table: Option<ChunkTableInfo>,
     entries: Vec<EntryWithPath>,
+}
+
+#[derive(Debug, Serialize)]
+struct ChunkTableInfo {
+    block_size: u32,
+    chunks: Vec<ChunkDescInfo>,
+}
+
+#[derive(Debug, Serialize)]
+struct ChunkDescInfo {
+    start: u64,
+    meta: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -29,10 +45,28 @@ pub fn dump_info(cmd: &DumpInfoCommand) -> anyhow::Result<()> {
 
     let file = std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
     let mut reader = std::io::BufReader::new(file);
-    let archive = ree_pak_core::read::read_archive(&mut reader)?;
+    let archive = read::read_archive(&mut reader)?;
+
+    let chunk_table = if archive.header().feature().contains(FeatureFlags::CHUNK_TABLE) {
+        let table = read::chunk_table::read_chunk_table(&mut reader)?;
+        Some(ChunkTableInfo {
+            block_size: table.block_size(),
+            chunks: table
+                .chunks()
+                .iter()
+                .map(|c| ChunkDescInfo {
+                    start: c.start(),
+                    meta: c.meta(),
+                })
+                .collect(),
+        })
+    } else {
+        None
+    };
 
     let info = PakInfo {
         header: archive.header().clone(),
+        chunk_table,
         entries: archive
             .entries()
             .iter()
@@ -69,8 +103,12 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
     let output_path = output_path(&cmd.output, &cmd.input);
 
     // open pak
+    let backend = match cmd.backend {
+        CliPakBackend::Mmap => PakBackend::Mmap,
+        CliPakBackend::Legacy => PakBackend::File,
+    };
     let pak = PakFile::builder()
-        .backend(PakBackend::Mmap)
+        .backend(backend)
         .open(&cmd.input)
         .context(format!("Input file `{}` not found.", &cmd.input))?;
 
@@ -78,6 +116,7 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
     let filters = cmd
         .filter
         .iter()
+        .filter(|f| !f.trim().is_empty())
         .map(|f| Regex::new(f))
         .collect::<Result<Vec<_>, _>>()?;
     let filters = Arc::new(filters);

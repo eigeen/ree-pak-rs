@@ -129,7 +129,7 @@ checksum = "b0674a1ddeecb70197781e945de4b3b8ffb61fa939a5597bcf48503737663100"
 
 [[package]]
 name = "app"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "anyhow",
  "chrono",
@@ -140,7 +140,7 @@ dependencies = [
  "parking_lot",
  "rayon",
  "re-tex",
- "ree-pak-core 0.6.0",
+ "ree-pak-core 0.6.1",
  "ree-path-searcher",
  "rustc-hash",
  "self-replace",
@@ -4419,7 +4419,7 @@ dependencies = [
  "indicatif 0.17.11",
  "parking_lot",
  "rayon",
- "ree-pak-core 0.6.0",
+ "ree-pak-core 0.6.1",
  "regex",
  "serde",
  "serde_json",
@@ -4452,7 +4452,7 @@ dependencies = [
 
 [[package]]
 name = "ree-pak-core"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bitflags 2.9.4",
  "byteorder",

@@ -7,6 +7,7 @@ use crate::pak::{self, CompressionType, FeatureFlags, PakArchive, PakEntry, PakH
 use crate::spec;
 
 pub mod archive;
+pub mod chunk_table;
 pub mod compressed;
 pub mod entry;
 

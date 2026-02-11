@@ -24,6 +24,16 @@ pub enum PakError {
     #[error("Invalid entry range: offset={offset}, size={size}, file_size={file_size}")]
     InvalidEntryRange { offset: u64, size: u64, file_size: u64 },
 
+    #[error("Entry uses chunk index offset; open via PakFile::open_entry()")]
+    ChunkedEntryRequiresPakFile,
+
+    #[error("Pak is missing chunk table (feature flag set, but table not loaded)")]
+    MissingChunkTable,
+    #[error("Invalid chunk index: {0}")]
+    InvalidChunkIndex(u64),
+    #[error("Invalid chunk table: {0}")]
+    InvalidChunkTable(&'static str),
+
     #[error("Failed to build rayon thread pool: {0}")]
     ThreadPoolBuild(String),
 }

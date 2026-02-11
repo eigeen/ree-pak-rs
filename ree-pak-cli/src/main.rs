@@ -1,6 +1,6 @@
 use std::env;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 mod pack;
 mod unpack;
@@ -22,6 +22,21 @@ enum Command {
     Pack(PackCommand),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum CliPakBackend {
+    /// Use `memmap2` memory mapping (default).
+    Mmap,
+    /// Use regular file I/O (legacy mode).
+    #[value(alias = "file")]
+    Legacy,
+}
+
+impl Default for CliPakBackend {
+    fn default() -> Self {
+        Self::Mmap
+    }
+}
+
 #[derive(Debug, Args)]
 struct UnpackCommand {
     /// Game project name or list file path, e.g. "MHRS_PC_Demo", "./MHRS_PC_Demo.list"
@@ -33,8 +48,11 @@ struct UnpackCommand {
     /// Output directory path
     #[arg(short, long)]
     output: Option<String>,
+    /// PAK reading backend. `legacy` uses regular file I/O; `mmap` uses memory mapping.
+    #[arg(long, value_enum, default_value_t)]
+    backend: CliPakBackend,
     /// Regex patterns to filter files to unpack by file path.
-    #[arg(short, long, default_value = "")]
+    #[arg(short, long)]
     filter: Vec<String>,
     /// Ignore errors during unpacking files
     #[arg(long, default_value = "false")]

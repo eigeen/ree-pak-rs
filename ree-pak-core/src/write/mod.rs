@@ -3,7 +3,7 @@ use std::io::{self, Seek, Write};
 use indexmap::IndexMap;
 
 use crate::{
-    pak::{CompressionType, EncryptionType, FeatureFlags, PakEntry, PakHeader, UnkAttr},
+    pak::{CompressionType, EncryptionType, EntryOffset, FeatureFlags, KnownAttr, PakEntry, PakHeader},
     spec,
     utf16_hash::Utf16HashExt,
 };
@@ -66,13 +66,14 @@ impl<W: Write + Seek> PakWriter<W> {
         let entry = PakEntry {
             hash_name_lower: hash.hash_lower_case(),
             hash_name_upper: hash.hash_upper_case(),
-            offset: self.inner.stream_position()?,
+            offset: EntryOffset::FileOffset(self.inner.stream_position()?),
             compressed_size: 0,
             uncompressed_size: 0,
             compression_type: options.compression_type,
             encryption_type: options.encryption_type,
             checksum: options.checksum,
-            unk_attr: options.unk_attr,
+            known_attr: KnownAttr::from_all_attr(options.all_attr),
+            all_attr: options.all_attr,
         };
 
         self.files.insert(hash, entry);
@@ -224,7 +225,7 @@ pub struct FileOptions {
     pub(crate) compression_type: CompressionType,
     pub(crate) encryption_type: EncryptionType,
     pub(crate) checksum: u64,
-    pub(crate) unk_attr: UnkAttr,
+    pub(crate) all_attr: u64,
 }
 
 impl FileOptions {
@@ -243,8 +244,13 @@ impl FileOptions {
         self
     }
 
-    pub fn with_unk_attr(mut self, unk_attr: UnkAttr) -> Self {
-        self.unk_attr = unk_attr;
+    /// Set raw entry `attributes` bits as a base.
+    ///
+    /// Note: This does *not* override other typed fields (e.g. `compression_type`, `encryption_type`).
+    /// When writing entries, those typed fields are treated as the source of truth and will override
+    /// corresponding bit ranges in `all_attr`.
+    pub fn with_all_attr(mut self, all_attr: u64) -> Self {
+        self.all_attr = all_attr;
         self
     }
 }

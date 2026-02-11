@@ -1,5 +1,6 @@
 use std::io::{BufRead, BufReader, Cursor, Read, Seek, SeekFrom};
 
+use crate::error::PakError;
 use crate::error::Result;
 use crate::pak::{self, EncryptionType, PakEntry};
 
@@ -38,7 +39,8 @@ impl PakEntryReader<Cursor<Vec<u8>>> {
     {
         let data_len = entry.compressed_size() as usize;
 
-        reader.seek(SeekFrom::Start(entry.offset()))?;
+        let offset = entry.file_offset().ok_or(PakError::ChunkedEntryRequiresPakFile)?;
+        reader.seek(SeekFrom::Start(offset))?;
         let mut data = vec![0; data_len];
         reader.read_exact(&mut data)?;
 
