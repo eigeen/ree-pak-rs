@@ -124,7 +124,13 @@ impl PakFile {
             EntryOffset::ChunkIndex(chunk_index) => {
                 let table = self.chunk_table.as_ref().ok_or(PakError::MissingChunkTable)?;
                 let start_chunk = usize::try_from(chunk_index).map_err(|_| PakError::InvalidChunkIndex(chunk_index))?;
-                let total_len = entry.compressed_size();
+                // Chunked entries are compressed per-chunk (or stored raw) and expanded by `ChunkedRead`.
+                // The entry's `compressed_size` is not the byte length produced by the chunk reader.
+                let total_len = if entry.uncompressed_size() != 0 {
+                    entry.uncompressed_size()
+                } else {
+                    entry.compressed_size()
+                };
                 match &self.inner {
                     PakFileInner::Mmap { mmap } => Box::new(BufReader::new(ChunkedRead::new_mmap(
                         Arc::clone(mmap),
