@@ -246,9 +246,45 @@ where
                 _ => {}
             }
         })
-        .run_with_bytes(|_entry, _rel_path, _bytes| Ok(()))?;
+        .run_with_bytes({
+            let bar = bar.clone();
+            move |entry, rel_path, bytes| {
+                let determined = read::entry::determine_extension_from_bytes(&bytes);
+                if determined == Some("tex") {
+                    let path_ext = logical_path_extension_for_check(rel_path);
+                    if path_ext.as_deref() != Some("tex") {
+                        bar.println(format!(
+                            "Warning: extension mismatch for `{}`: path_ext={} detected=.tex hash={:016X}",
+                            rel_path.display(),
+                            path_ext.as_deref().unwrap_or("<none>"),
+                            entry.hash()
+                        ));
+                    }
+                }
+                Ok(())
+            }
+        })?;
 
     Ok(report)
+}
+
+fn logical_path_extension_for_check(path: &Path) -> Option<String> {
+    let file_name = path.file_name()?.to_string_lossy();
+    let mut parts = file_name.split('.').collect::<Vec<_>>();
+    if parts.len() < 2 {
+        return None;
+    }
+    let last = parts.pop().unwrap();
+    let ext = if last.chars().all(|c| c.is_ascii_digit()) && parts.len() >= 2 {
+        parts.pop().unwrap()
+    } else {
+        last
+    };
+    if ext.is_empty() {
+        None
+    } else {
+        Some(ext.to_ascii_lowercase())
+    }
 }
 
 fn unpack_with_pak<R>(
@@ -409,5 +445,31 @@ fn load_filename_table(project_name_or_path: &str) -> anyhow::Result<FileNameTab
             "Project file `{}` not found in assets/filelist, check your project name.",
             project_name_or_path
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn logical_path_extension_for_check_handles_numeric_suffix() {
+        assert_eq!(
+            logical_path_extension_for_check(Path::new("name.tex.20260213")),
+            Some("tex".to_string())
+        );
+        assert_eq!(
+            logical_path_extension_for_check(Path::new("name.TEX.20260213")),
+            Some("tex".to_string())
+        );
+        assert_eq!(
+            logical_path_extension_for_check(Path::new("name.20260213")),
+            Some("20260213".to_string())
+        );
+        assert_eq!(
+            logical_path_extension_for_check(Path::new("name.tex")),
+            Some("tex".to_string())
+        );
+        assert_eq!(logical_path_extension_for_check(Path::new("name")), None);
     }
 }

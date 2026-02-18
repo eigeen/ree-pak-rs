@@ -106,11 +106,20 @@ where
     R: BufRead,
 {
     pub fn determine_extension(&self) -> Option<&str> {
-        determine_extension(self.magic_buf)
+        determine_extension_from_magic(self.magic_buf)
     }
 }
 
-fn determine_extension(magic: [u8; 8]) -> Option<&'static str> {
+pub fn determine_extension_from_bytes(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.len() < 8 {
+        return None;
+    }
+    let mut magic = [0u8; 8];
+    magic.copy_from_slice(&bytes[..8]);
+    determine_extension_from_magic(magic)
+}
+
+pub fn determine_extension_from_magic(magic: [u8; 8]) -> Option<&'static str> {
     let magic_lower = u32::from_le_bytes(magic[0..4].try_into().unwrap());
     let magic_upper = u32::from_le_bytes(magic[4..8].try_into().unwrap());
 
@@ -265,4 +274,23 @@ fn determine_extension(magic: [u8; 8]) -> Option<&'static str> {
     };
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn determine_extension_from_bytes_short_input() {
+        assert_eq!(determine_extension_from_bytes(&[]), None);
+        assert_eq!(determine_extension_from_bytes(&[0u8; 7]), None);
+    }
+
+    #[test]
+    fn determine_extension_from_bytes_tex() {
+        // magic_lower == 0x00584554 (little-endian bytes: "TEX\\0")
+        let mut bytes = vec![0u8; 16];
+        bytes[0..4].copy_from_slice(b"TEX\0");
+        assert_eq!(determine_extension_from_bytes(&bytes), Some("tex"));
+    }
 }
