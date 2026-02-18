@@ -43,7 +43,7 @@ impl ChunkDesc {
     }
 
     pub fn is_raw(&self) -> bool {
-        self.meta == 0x2000_0000
+        (self.meta & 0xF000_0000) == 0x2000_0000
     }
 
     pub fn compressed_len(&self, block_size: u32) -> u32 {

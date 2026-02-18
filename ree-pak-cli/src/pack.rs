@@ -1,5 +1,6 @@
 use std::{
     fs::OpenOptions,
+    fmt,
     io::Write,
     path::{Path, PathBuf},
 };
@@ -23,6 +24,15 @@ impl FileName {
         match self {
             FileName::Full(name) => name.hash_mixed(),
             FileName::Hash(hash) => hash.hash_mixed(),
+        }
+    }
+}
+
+impl fmt::Display for FileName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FileName::Full(name) => f.write_str(name),
+            FileName::Hash(hash) => write!(f, "0x{hash:016X}"),
         }
     }
 }
@@ -82,7 +92,7 @@ pub fn package(cmd: &PackCommand) -> anyhow::Result<()> {
             FileName::Full(input_path.to_string())
         };
 
-        println!("Packing file: {:?}", file_name);
+        println!("Packing file: {}", file_name);
         let data = std::fs::read(&input_path)?;
         pak_writer.start_file(file_name.hash(), FileOptions::default())?;
         pak_writer.write_all(&data)?;
