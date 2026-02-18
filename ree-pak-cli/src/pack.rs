@@ -5,6 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use color_eyre::eyre;
 use indexmap::IndexSet;
 use ree_pak_core::{
     utf16_hash::Utf16HashExt,
@@ -37,10 +38,10 @@ impl fmt::Display for FileName {
     }
 }
 
-pub fn package(cmd: &PackCommand) -> anyhow::Result<()> {
+pub fn package(cmd: &PackCommand) -> color_eyre::Result<()> {
     let input_paths = collect_inputs(&cmd.input)?;
     if input_paths.is_empty() {
-        anyhow::bail!("No input files found");
+        eyre::bail!("No input files found");
     }
 
     // create output writer
@@ -106,12 +107,12 @@ pub fn package(cmd: &PackCommand) -> anyhow::Result<()> {
 }
 
 /// Collect input files in input directory into a single list of files.
-fn collect_inputs(input_dir: impl AsRef<Path>) -> anyhow::Result<Vec<String>> {
+fn collect_inputs(input_dir: impl AsRef<Path>) -> color_eyre::Result<Vec<String>> {
     let mut files = IndexSet::new();
 
     let input_dir = input_dir.as_ref();
     if !input_dir.exists() {
-        anyhow::bail!("Input directory does not exist: {}", input_dir.display());
+        eyre::bail!("Input directory does not exist: {}", input_dir.display());
     }
 
     for entry in walkdir::WalkDir::new(input_dir) {

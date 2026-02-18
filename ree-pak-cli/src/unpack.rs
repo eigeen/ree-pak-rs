@@ -1,7 +1,7 @@
 use std::io::{Read, Seek, SeekFrom};
 use std::{path::Path, path::PathBuf, sync::Arc, time::Duration};
 
-use anyhow::Context;
+use color_eyre::eyre::{self, Context};
 use indicatif::{ProgressBar, ProgressStyle};
 use memmap2::{Mmap, MmapOptions};
 use ree_pak_core::{
@@ -42,7 +42,7 @@ struct EntryWithPath {
     path: Option<String>,
 }
 
-pub fn dump_info(cmd: &DumpInfoCommand) -> anyhow::Result<()> {
+pub fn dump_info(cmd: &DumpInfoCommand) -> color_eyre::Result<()> {
     let filename_table = load_filename_table(&cmd.project)?;
 
     let file = std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
@@ -97,7 +97,7 @@ pub fn dump_info(cmd: &DumpInfoCommand) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
+pub fn unpack_parallel(cmd: &UnpackCommand) -> color_eyre::Result<()> {
     // load project file name table
     let file_name_table = Arc::new(load_filename_table(&cmd.project)?);
 
@@ -213,7 +213,7 @@ fn test_with_pak<R>(
     filters: Arc<Vec<Regex>>,
     bar: ProgressBar,
     cmd: &UnpackCommand,
-) -> anyhow::Result<ree_pak_core::extract::ExtractReport>
+) -> color_eyre::Result<ree_pak_core::extract::ExtractReport>
 where
     R: PakReader,
 {
@@ -294,7 +294,7 @@ fn unpack_with_pak<R>(
     filters: Arc<Vec<Regex>>,
     bar: ProgressBar,
     cmd: &UnpackCommand,
-) -> anyhow::Result<ree_pak_core::extract::ExtractReport>
+) -> color_eyre::Result<ree_pak_core::extract::ExtractReport>
 where
     R: PakReader,
 {
@@ -413,7 +413,7 @@ fn output_path<P: AsRef<Path>>(output: &Option<String>, input: P) -> PathBuf {
     }
 }
 
-fn load_filename_table(project_name_or_path: &str) -> anyhow::Result<FileNameTable> {
+fn load_filename_table(project_name_or_path: &str) -> color_eyre::Result<FileNameTable> {
     // try to load as file path
     let path = Path::new(project_name_or_path);
     if path.exists() {
@@ -441,7 +441,7 @@ fn load_filename_table(project_name_or_path: &str) -> anyhow::Result<FileNameTab
     if let Some(path_abs) = path_abs {
         FileNameTable::from_list_file(path_abs).context("Failed to load file name table")
     } else {
-        anyhow::bail!(
+        eyre::bail!(
             "Project file `{}` not found in assets/filelist, check your project name.",
             project_name_or_path
         );

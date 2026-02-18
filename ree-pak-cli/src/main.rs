@@ -97,7 +97,7 @@ struct PackCommand {
     r#override: bool,
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> color_eyre::Result<()> {
     // direct argumet mode for drap-and-drop
     let args = env::args().skip(1).collect::<Vec<String>>();
     if args.len() == 1 {
