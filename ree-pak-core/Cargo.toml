@@ -11,7 +11,7 @@ nohash.workspace = true
 rustc-hash.workspace = true
 thiserror.workspace = true
 rayon.workspace = true
-bitflags = "2.9"
+bitflags = "2.11"
 parking_lot.workspace = true
 serde = { workspace = true, features = ["derive"] }
 memmap2 = "0.9"
