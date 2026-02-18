@@ -14,7 +14,6 @@ rayon.workspace = true
 bitflags = "2.11"
 parking_lot.workspace = true
 serde = { workspace = true, features = ["derive"] }
-memmap2 = "0.9"
 
 # compression
 zstd.workspace = true

@@ -1,126 +1,112 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use memmap2::{Mmap, MmapOptions};
-
 use crate::error::{PakError, Result};
-use crate::pak::{EntryOffset, FeatureFlags, PakArchive, PakEntry};
+use crate::pak::{EntryOffset, FeatureFlags, PakEntry, PakMetadata};
 use crate::read::chunk_table::ChunkTable;
 use crate::read::{self, entry::PakEntryReader};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PakBackend {
-    /// Use `memmap2` memory mapping.
-    Mmap,
-    /// Use regular file IO.
-    File,
+pub trait PakReader: Read + Seek + Send + Sync {
+    fn try_clone(&self) -> std::io::Result<Self>
+    where
+        Self: Sized;
 }
 
-impl Default for PakBackend {
-    fn default() -> Self {
-        Self::Mmap
+impl<T> PakReader for T
+where
+    T: Read + Seek + Clone + Send + Sync,
+{
+    fn try_clone(&self) -> std::io::Result<Self> {
+        Ok(self.clone())
     }
 }
 
-#[derive(Debug, Default)]
-pub struct PakFileBuilder {
-    backend: PakBackend,
+#[derive(Debug)]
+pub struct CloneableFile(File);
+
+impl CloneableFile {
+    pub fn new(file: File) -> Self {
+        Self(file)
+    }
+
+    pub fn into_inner(self) -> File {
+        self.0
+    }
 }
 
-impl PakFileBuilder {
-    pub fn new() -> Self {
-        Self::default()
+impl Read for CloneableFile {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buf)
     }
+}
 
-    pub fn backend(mut self, backend: PakBackend) -> Self {
-        self.backend = backend;
-        self
+impl Seek for CloneableFile {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        self.0.seek(pos)
     }
+}
 
-    pub fn mmap(mut self, enabled: bool) -> Self {
-        self.backend = if enabled { PakBackend::Mmap } else { PakBackend::File };
-        self
-    }
-
-    pub fn open(self, path: impl AsRef<Path>) -> Result<PakFile> {
-        PakFile::open_with_backend(path, self.backend)
+impl PakReader for CloneableFile {
+    fn try_clone(&self) -> std::io::Result<Self> {
+        self.0.try_clone().map(Self)
     }
 }
 
 /// High-level, parallel-friendly pak file handle.
-pub struct PakFile {
-    path: PathBuf,
-    archive: PakArchive,
-    backend: PakBackend,
-    inner: PakFileInner,
+pub struct PakFile<R: PakReader = CloneableFile> {
+    reader: R,
+    metadata: PakMetadata,
     chunk_table: Option<Arc<ChunkTable>>,
+    file_size: Option<u64>,
 }
 
-enum PakFileInner {
-    Mmap { mmap: Arc<Mmap> },
-    File { file: File },
+impl PakFile<CloneableFile> {
+    pub fn from_file(file: File) -> Result<Self> {
+        Self::from_reader(CloneableFile::new(file))
+    }
 }
 
-impl PakFile {
-    pub fn builder() -> PakFileBuilder {
-        PakFileBuilder::new()
-    }
-
-    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        Self::open_with_backend(path, PakBackend::default())
-    }
-
-    pub fn open_with_backend(path: impl AsRef<Path>, backend: PakBackend) -> Result<Self> {
-        let path = path.as_ref();
-        let path_abs = path
-            .canonicalize()
-            .map_err(|e| PakError::IO(std::io::Error::new(e.kind(), format!("{}: {}", path.display(), e))))?;
-
-        let file = File::open(&path_abs)?;
-        let mut reader = BufReader::new(file);
-        let archive = read::read_archive(&mut reader)?;
-        let chunk_table = if archive.header().feature().contains(FeatureFlags::CHUNK_TABLE) {
-            Some(Arc::new(read::chunk_table::read_chunk_table(&mut reader)?))
-        } else {
-            None
+impl<R> PakFile<R>
+where
+    R: PakReader,
+{
+    pub fn from_reader(reader: R) -> Result<Self> {
+        let file_size = {
+            let mut r = reader.try_clone()?;
+            match r.seek(SeekFrom::End(0)) {
+                Ok(len) => Some(len),
+                Err(_) => None,
+            }
         };
 
-        let file = reader.into_inner();
-
-        let inner = match backend {
-            PakBackend::Mmap => {
-                // SAFETY: read-only mapping; the file is held for the lifetime of the mmap.
-                let mmap = unsafe { MmapOptions::new().map(&file)? };
-                PakFileInner::Mmap { mmap: Arc::new(mmap) }
-            }
-            PakBackend::File => PakFileInner::File { file },
+        let (metadata, chunk_table) = {
+            let mut r = reader.try_clone()?;
+            r.seek(SeekFrom::Start(0))?;
+            let mut buf = BufReader::new(r);
+            let metadata = read::read_metadata(&mut buf)?;
+            let chunk_table = if metadata.header().feature().contains(FeatureFlags::CHUNK_TABLE) {
+                Some(Arc::new(read::chunk_table::read_chunk_table(&mut buf)?))
+            } else {
+                None
+            };
+            (metadata, chunk_table)
         };
 
         Ok(Self {
-            path: path_abs,
-            archive,
-            backend,
-            inner,
+            reader,
+            metadata,
             chunk_table,
+            file_size,
         })
     }
 
-    pub fn path(&self) -> &Path {
-        &self.path
+    pub fn metadata(&self) -> &PakMetadata {
+        &self.metadata
     }
 
-    pub fn archive(&self) -> &PakArchive {
-        &self.archive
-    }
-
-    pub fn backend(&self) -> PakBackend {
-        self.backend
-    }
-
-    pub fn open_entry(&self, entry: &PakEntry) -> Result<PakEntryReader<Box<dyn BufRead + Send>>> {
-        let raw: Box<dyn BufRead + Send> = match entry.offset() {
+    pub fn open_entry(&self, entry: &PakEntry) -> Result<PakEntryReader<Box<dyn BufRead + Send + '_>>> {
+        let raw: Box<dyn BufRead + Send + '_> = match entry.offset() {
             EntryOffset::ChunkIndex(chunk_index) => {
                 let table = self.chunk_table.as_ref().ok_or(PakError::MissingChunkTable)?;
                 let start_chunk = usize::try_from(chunk_index).map_err(|_| PakError::InvalidChunkIndex(chunk_index))?;
@@ -131,55 +117,40 @@ impl PakFile {
                 } else {
                     entry.compressed_size()
                 };
-                match &self.inner {
-                    PakFileInner::Mmap { mmap } => Box::new(BufReader::new(ChunkedRead::new_mmap(
-                        Arc::clone(mmap),
-                        Arc::clone(table),
-                        start_chunk,
-                        total_len,
-                    )?)),
-                    PakFileInner::File { file } => Box::new(BufReader::new(ChunkedRead::new_file(
-                        file.try_clone()?,
-                        Arc::clone(table),
-                        start_chunk,
-                        total_len,
-                    )?)),
-                }
+                let r = self.reader.try_clone()?;
+                Box::new(BufReader::new(ChunkedRead::new(
+                    r,
+                    self.file_size,
+                    Arc::clone(table),
+                    start_chunk,
+                    total_len,
+                )?))
             }
-            EntryOffset::FileOffset(file_offset) => match &self.inner {
-                PakFileInner::Mmap { mmap } => {
-                    let offset = file_offset as usize;
-                    let len = entry.compressed_size() as usize;
-                    let end = offset.saturating_add(len);
-                    if end > mmap.len() {
+            EntryOffset::FileOffset(file_offset) => {
+                if let Some(file_size) = self.file_size {
+                    let end = file_offset.saturating_add(entry.compressed_size());
+                    if end > file_size {
                         return Err(PakError::InvalidEntryRange {
                             offset: file_offset,
                             size: entry.compressed_size(),
-                            file_size: mmap.len() as u64,
+                            file_size,
                         });
                     }
-                    Box::new(MmapRangeReader::new(Arc::clone(mmap), offset, end))
                 }
-                PakFileInner::File { file } => {
-                    let mut f = file.try_clone()?;
-                    f.seek(SeekFrom::Start(file_offset))?;
-                    let take = f.take(entry.compressed_size());
-                    Box::new(BufReader::new(take))
-                }
-            },
+                let mut r = self.reader.try_clone()?;
+                r.seek(SeekFrom::Start(file_offset))?;
+                let take = r.take(entry.compressed_size());
+                Box::new(BufReader::new(take))
+            }
         };
 
         PakEntryReader::new_boxed(raw, entry.clone())
     }
 }
 
-enum ChunkedSource {
-    Mmap { mmap: Arc<Mmap> },
-    File { file: File },
-}
-
-struct ChunkedRead {
-    source: ChunkedSource,
+struct ChunkedRead<R> {
+    reader: R,
+    file_size: Option<u64>,
     table: Arc<ChunkTable>,
     next_chunk_index: usize,
     remaining: u64,
@@ -187,16 +158,17 @@ struct ChunkedRead {
     buf_pos: usize,
 }
 
-impl ChunkedRead {
-    fn new_mmap(mmap: Arc<Mmap>, table: Arc<ChunkTable>, start_chunk: usize, total_len: u64) -> Result<Self> {
-        Self::new(ChunkedSource::Mmap { mmap }, table, start_chunk, total_len)
-    }
-
-    fn new_file(file: File, table: Arc<ChunkTable>, start_chunk: usize, total_len: u64) -> Result<Self> {
-        Self::new(ChunkedSource::File { file }, table, start_chunk, total_len)
-    }
-
-    fn new(source: ChunkedSource, table: Arc<ChunkTable>, start_chunk: usize, total_len: u64) -> Result<Self> {
+impl<R> ChunkedRead<R>
+where
+    R: Read + Seek,
+{
+    fn new(
+        reader: R,
+        file_size: Option<u64>,
+        table: Arc<ChunkTable>,
+        start_chunk: usize,
+        total_len: u64,
+    ) -> Result<Self> {
         let block_size = table.block_size() as u64;
         if block_size == 0 {
             return Err(PakError::InvalidChunkTable("block_size is 0"));
@@ -215,7 +187,8 @@ impl ChunkedRead {
         }
 
         Ok(Self {
-            source,
+            reader,
+            file_size,
             table,
             next_chunk_index: start_chunk,
             remaining: total_len,
@@ -244,23 +217,17 @@ impl ChunkedRead {
         let start = desc.start() as usize;
         let end = start.saturating_add(comp_len);
 
-        let comp_bytes = match &mut self.source {
-            ChunkedSource::Mmap { mmap } => {
-                if end > mmap.len() {
-                    return Err(std::io::Error::other(format!(
-                        "chunk range out of bounds: start={start} end={end} file_size={}",
-                        mmap.len()
-                    )));
-                }
-                mmap[start..end].to_vec()
-            }
-            ChunkedSource::File { file } => {
-                file.seek(SeekFrom::Start(desc.start()))?;
-                let mut buf = vec![0u8; comp_len];
-                file.read_exact(&mut buf)?;
-                buf
-            }
-        };
+        if let Some(file_size) = self.file_size
+            && end as u64 > file_size
+        {
+            return Err(std::io::Error::other(format!(
+                "chunk range out of bounds: start={start} end={end} file_size={file_size}"
+            )));
+        }
+
+        self.reader.seek(SeekFrom::Start(desc.start()))?;
+        let mut comp_bytes = vec![0u8; comp_len];
+        self.reader.read_exact(&mut comp_bytes)?;
 
         let out = if desc.is_raw() {
             comp_bytes
@@ -289,7 +256,10 @@ impl ChunkedRead {
     }
 }
 
-impl Read for ChunkedRead {
+impl<R> Read for ChunkedRead<R>
+where
+    R: Read + Seek,
+{
     fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
         if self.remaining == 0 {
             return Ok(0);
@@ -308,41 +278,5 @@ impl Read for ChunkedRead {
         self.buf_pos += want;
         self.remaining -= want as u64;
         Ok(want)
-    }
-}
-
-struct MmapRangeReader {
-    mmap: Arc<Mmap>,
-    end: usize,
-    pos: usize,
-}
-
-impl MmapRangeReader {
-    fn new(mmap: Arc<Mmap>, start: usize, end: usize) -> Self {
-        Self { mmap, end, pos: start }
-    }
-}
-
-impl Read for MmapRangeReader {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let remaining = self.end.saturating_sub(self.pos);
-        if remaining == 0 {
-            return Ok(0);
-        }
-        let to_read = remaining.min(buf.len());
-        let src = &self.mmap[self.pos..self.pos + to_read];
-        buf[..to_read].copy_from_slice(src);
-        self.pos += to_read;
-        Ok(to_read)
-    }
-}
-
-impl BufRead for MmapRangeReader {
-    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
-        Ok(&self.mmap[self.pos..self.end])
-    }
-
-    fn consume(&mut self, amt: usize) {
-        self.pos = (self.pos + amt).min(self.end);
     }
 }

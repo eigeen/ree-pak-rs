@@ -78,12 +78,12 @@ impl PakEntryReader<Cursor<Vec<u8>>> {
     // }
 }
 
-impl PakEntryReader<Box<dyn BufRead + Send>> {
+impl<'a> PakEntryReader<Box<dyn BufRead + Send + 'a>> {
     /// Create a new entry reader from a boxed raw (compressed) reader.
     ///
     /// - For non-encrypted entries, the raw reader will be used directly.
     /// - For encrypted entries, the raw bytes will be fully read, decrypted, then wrapped as a new reader.
-    pub fn new_boxed(mut raw: Box<dyn BufRead + Send>, entry: PakEntry) -> Result<Self> {
+    pub fn new_boxed(mut raw: Box<dyn BufRead + Send + 'a>, entry: PakEntry) -> Result<Self> {
         if entry.encryption_type() != EncryptionType::None {
             let mut encrypted = Vec::with_capacity(entry.compressed_size() as usize);
             raw.read_to_end(&mut encrypted)?;

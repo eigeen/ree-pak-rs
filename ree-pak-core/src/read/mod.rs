@@ -3,7 +3,7 @@ use std::io::{Cursor, Read};
 use byteorder::{LE, ReadBytesExt};
 
 use crate::error::Result;
-use crate::pak::{self, CompressionType, FeatureFlags, PakArchive, PakEntry, PakHeader};
+use crate::pak::{self, CompressionType, FeatureFlags, PakEntry, PakHeader, PakMetadata};
 use crate::spec;
 
 pub mod archive;
@@ -32,7 +32,7 @@ impl PakReaderError {
     }
 }
 
-pub fn read_archive<R>(reader: &mut R) -> Result<PakArchive>
+pub fn read_metadata<R>(reader: &mut R) -> Result<PakMetadata>
 where
     R: Read,
 {
@@ -58,7 +58,7 @@ where
     // parse entries
     let entries = read_entries(&mut Cursor::new(&entry_table_bytes), &header)?;
 
-    Ok(PakArchive::new(header, entries))
+    Ok(PakMetadata::new(header, entries))
 }
 
 fn read_entries<R>(reader: &mut R, header: &PakHeader) -> Result<Vec<PakEntry>>

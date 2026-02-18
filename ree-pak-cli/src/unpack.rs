@@ -1,12 +1,14 @@
+use std::io::{Read, Seek, SeekFrom};
 use std::{path::Path, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::Context;
 use indicatif::{ProgressBar, ProgressStyle};
+use memmap2::{Mmap, MmapOptions};
 use ree_pak_core::{
     extract::ExtractEvent,
     filename::FileNameTable,
     pak::FeatureFlags,
-    pakfile::{PakBackend, PakFile},
+    pakfile::{PakFile, PakReader},
     read,
 };
 use regex::Regex;
@@ -45,9 +47,9 @@ pub fn dump_info(cmd: &DumpInfoCommand) -> anyhow::Result<()> {
 
     let file = std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
     let mut reader = std::io::BufReader::new(file);
-    let archive = read::read_archive(&mut reader)?;
+    let metadata = read::read_metadata(&mut reader)?;
 
-    let chunk_table = if archive.header().feature().contains(FeatureFlags::CHUNK_TABLE) {
+    let chunk_table = if metadata.header().feature().contains(FeatureFlags::CHUNK_TABLE) {
         let table = read::chunk_table::read_chunk_table(&mut reader)?;
         Some(ChunkTableInfo {
             block_size: table.block_size(),
@@ -65,9 +67,9 @@ pub fn dump_info(cmd: &DumpInfoCommand) -> anyhow::Result<()> {
     };
 
     let info = PakInfo {
-        header: archive.header().clone(),
+        header: metadata.header().clone(),
         chunk_table,
-        entries: archive
+        entries: metadata
             .entries()
             .iter()
             .map(|entry| {
@@ -97,20 +99,10 @@ pub fn dump_info(cmd: &DumpInfoCommand) -> anyhow::Result<()> {
 
 pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
     // load project file name table
-    let file_name_table = load_filename_table(&cmd.project)?;
+    let file_name_table = Arc::new(load_filename_table(&cmd.project)?);
 
     // output path
     let output_path = output_path(&cmd.output, &cmd.input);
-
-    // open pak
-    let backend = match cmd.backend {
-        CliPakBackend::Mmap => PakBackend::Mmap,
-        CliPakBackend::Legacy => PakBackend::File,
-    };
-    let pak = PakFile::builder()
-        .backend(backend)
-        .open(&cmd.input)
-        .context(format!("Input file `{}` not found.", &cmd.input))?;
 
     // apply filter
     let filters = cmd
@@ -127,9 +119,68 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
     bar.enable_steady_tick(Duration::from_millis(100));
     bar.println(format!("Output directory: `{}`", output_path.display()));
 
+    // open pak (path wrapper kept in CLI)
+    let report = match cmd.backend {
+        CliPakBackend::Legacy => {
+            let file = std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
+            let pak = PakFile::from_file(file)?;
+            unpack_with_pak(
+                pak,
+                &output_path,
+                Arc::clone(&file_name_table),
+                Arc::clone(&filters),
+                bar.clone(),
+                cmd,
+            )?
+        }
+        CliPakBackend::Mmap => {
+            let file = std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
+            // SAFETY: read-only mapping.
+            let mmap = unsafe { MmapOptions::new().map(&file)? };
+            let pak = PakFile::from_reader(MmapReader::new(mmap))?;
+            unpack_with_pak(
+                pak,
+                &output_path,
+                Arc::clone(&file_name_table),
+                Arc::clone(&filters),
+                bar.clone(),
+                cmd,
+            )?
+        }
+    };
+
+    if report.failed > 0 {
+        println!("Done with {} errors", report.failed);
+        if report.errors.len() < 30 {
+            println!("Errors: {:?}", report.errors);
+        } else {
+            println!("Errors: {:?}", &report.errors[0..30]);
+            println!(
+                "Displaying only the first 30 errors. Too many errors to display ({}).",
+                report.errors.len()
+            );
+        }
+    } else {
+        println!("Done.");
+    }
+
+    Ok(())
+}
+
+fn unpack_with_pak<R>(
+    pak: PakFile<R>,
+    output_path: &Path,
+    file_name_table: Arc<FileNameTable>,
+    filters: Arc<Vec<Regex>>,
+    bar: ProgressBar,
+    cmd: &UnpackCommand,
+) -> anyhow::Result<ree_pak_core::extract::ExtractReport>
+where
+    R: PakReader,
+{
     let report = pak
-        .extractor(&output_path)
-        .file_name_table(file_name_table)
+        .extractor(output_path)
+        .file_name_table_arc(file_name_table)
         .skip_unknown(cmd.skip_unknown)
         .overwrite(cmd.r#override)
         .continue_on_error(cmd.ignore_error)
@@ -158,23 +209,70 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
             }
         })
         .run()?;
+    Ok(report)
+}
 
-    if report.failed > 0 {
-        println!("Done with {} errors", report.failed);
-        if report.errors.len() < 30 {
-            println!("Errors: {:?}", report.errors);
-        } else {
-            println!("Errors: {:?}", &report.errors[0..30]);
-            println!(
-                "Displaying only the first 30 errors. Too many errors to display ({}).",
-                report.errors.len()
-            );
+#[derive(Clone)]
+struct MmapReader {
+    mmap: Arc<Mmap>,
+    pos: u64,
+}
+
+impl MmapReader {
+    fn new(mmap: Mmap) -> Self {
+        Self {
+            mmap: Arc::new(mmap),
+            pos: 0,
         }
-    } else {
-        println!("Done.");
     }
 
-    Ok(())
+    fn len(&self) -> u64 {
+        self.mmap.len() as u64
+    }
+}
+
+impl Read for MmapReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let len = self.len();
+        if self.pos >= len {
+            return Ok(0);
+        }
+        let remaining = (len - self.pos) as usize;
+        let to_read = buf.len().min(remaining);
+        let start = self.pos as usize;
+        let end = start + to_read;
+        buf[..to_read].copy_from_slice(&self.mmap[start..end]);
+        self.pos += to_read as u64;
+        Ok(to_read)
+    }
+}
+
+impl Seek for MmapReader {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        let len = self.len() as i128;
+        let cur = self.pos as i128;
+        let next = match pos {
+            SeekFrom::Start(n) => n as i128,
+            SeekFrom::End(off) => len.saturating_add(off as i128),
+            SeekFrom::Current(off) => cur.saturating_add(off as i128),
+        };
+        if next < 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid seek to a negative offset",
+            ));
+        }
+        let next_u64 =
+            u64::try_from(next).map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "seek overflow"))?;
+        if next_u64 > self.len() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid seek beyond end of mmap",
+            ));
+        }
+        self.pos = next_u64;
+        Ok(self.pos)
+    }
 }
 
 fn output_path<P: AsRef<Path>>(output: &Option<String>, input: P) -> PathBuf {

@@ -259,7 +259,7 @@ impl FileOptions {
 mod tests {
     use std::io::{Cursor, Read};
 
-    use crate::read::{self, archive::PakArchiveReader};
+    use crate::read::{self, archive::PakMetadataReader};
 
     use super::*;
 
@@ -277,10 +277,10 @@ mod tests {
         println!("{:?}", vec);
 
         let mut reader = Cursor::new(vec);
-        let archive = read::read_archive(&mut reader).unwrap();
-        println!("{:#?}", archive);
-        let mut archive_reader = PakArchiveReader::new(reader, &archive);
-        for (i, entry) in archive.entries().iter().enumerate() {
+        let metadata = read::read_metadata(&mut reader).unwrap();
+        println!("{:#?}", metadata);
+        let mut archive_reader = PakMetadataReader::new(reader, &metadata);
+        for (i, entry) in metadata.entries().iter().enumerate() {
             let mut entry_reader = archive_reader.owned_entry_reader(entry.clone()).unwrap();
             let mut buf = vec![0; entry.uncompressed_size as usize];
             entry_reader.read_exact(&mut buf).unwrap();

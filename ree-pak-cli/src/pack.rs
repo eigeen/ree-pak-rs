@@ -1,6 +1,6 @@
 use std::{
-    fs::OpenOptions,
     fmt,
+    fs::OpenOptions,
     io::Write,
     path::{Path, PathBuf},
 };
@@ -49,10 +49,10 @@ pub fn package(cmd: &PackCommand) -> anyhow::Result<()> {
         let input_dir_parent = Path::new(input_dir).parent().unwrap_or(Path::new("."));
         Path::new(input_dir_parent).join("re_chunk_000.pak.patch_999.pak")
     });
-    if let Some(parent) = output_path.parent() {
-        if !parent.exists() {
-            std::fs::create_dir_all(parent)?;
-        }
+    if let Some(parent) = output_path.parent()
+        && !parent.exists()
+    {
+        std::fs::create_dir_all(parent)?;
     }
 
     let mut output_option = OpenOptions::new();

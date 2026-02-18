@@ -10,16 +10,18 @@ pub use entry::*;
 pub use flag::*;
 pub use header::*;
 
-/// Pak Archive, stores the header and entries.
+/// Pak metadata (header + entry table).
+///
+/// Note: this struct does **not** include the raw data bytes of the pak file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PakArchive {
+pub struct PakMetadata {
     header: PakHeader,
     entries: Vec<PakEntry>,
 }
 
-impl PakArchive {
+impl PakMetadata {
     pub fn new(header: PakHeader, entries: Vec<PakEntry>) -> Self {
-        PakArchive { header, entries }
+        PakMetadata { header, entries }
     }
 
     pub fn header(&self) -> &PakHeader {
