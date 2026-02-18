@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::sync::Arc;
 
 use crate::error::{PakError, Result};
-use crate::pak::{CompressionType, EntryOffset, FeatureFlags, PakEntry, PakMetadata};
+use crate::pak::{ChunkCompressionType, EntryOffset, FeatureFlags, PakEntry, PakMetadata};
 use crate::read::chunk_table::ChunkTable;
 use crate::read::{self, entry::PakEntryReader};
 
@@ -155,6 +155,29 @@ struct ChunkedRead<R> {
     buf_pos: usize,
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("failed to decode chunk {chunk_index} (compression={compression:?}, start={start}, end={end}): {kind}")]
+struct ChunkDecodeError {
+    chunk_index: usize,
+    compression: ChunkCompressionType,
+    start: u64,
+    end: u64,
+    #[source]
+    kind: ChunkDecodeErrorKind,
+}
+
+#[derive(Debug, thiserror::Error)]
+enum ChunkDecodeErrorKind {
+    #[error("chunk range out of bounds (file_size={file_size})")]
+    OutOfBounds { file_size: u64 },
+    #[error("failed to read chunk bytes")]
+    Read(#[source] std::io::Error),
+    #[error("zstd decode failed")]
+    Zstd(#[source] std::io::Error),
+    #[error("unexpected chunk output size (got={got}, expected={expected})")]
+    OutputSize { got: usize, expected: usize },
+}
+
 impl<R> ChunkedRead<R>
 where
     R: Read + Seek,
@@ -201,60 +224,79 @@ where
             return Ok(());
         }
 
+        let chunk_index = self.next_chunk_index;
         let desc = self
             .table
             .chunks()
-            .get(self.next_chunk_index)
-            .ok_or_else(|| std::io::Error::other(format!("chunk index out of range: {}", self.next_chunk_index)))?
+            .get(chunk_index)
+            .ok_or_else(|| std::io::Error::other(format!("chunk index out of range: {chunk_index}")))?
             .clone();
         self.next_chunk_index += 1;
 
         let block_size = self.table.block_size() as usize;
-        let comp_len = desc.compressed_len(self.table.block_size()).ok_or_else(|| {
-            std::io::Error::other("unknown chunk compression type, failed to get compressed length for chunk")
-        })? as usize;
-        let start = desc.start() as usize;
-        let end = start.saturating_add(comp_len);
+        let block_size_u32 = self.table.block_size();
+        let compression = desc.compression_type(block_size_u32);
+        let comp_len = desc.compressed_len() as usize;
+        let start = desc.start();
+        let end = start.saturating_add(comp_len as u64);
 
         if let Some(file_size) = self.file_size
-            && end as u64 > file_size
+            && end > file_size
         {
-            return Err(std::io::Error::other(format!(
-                "chunk range out of bounds: start={start} end={end} file_size={file_size}"
-            )));
+            return Err(std::io::Error::other(ChunkDecodeError {
+                chunk_index,
+                compression,
+                start,
+                end,
+                kind: ChunkDecodeErrorKind::OutOfBounds { file_size },
+            }));
         }
 
-        self.reader.seek(SeekFrom::Start(desc.start()))?;
+        self.reader.seek(SeekFrom::Start(start))?;
         let mut comp_bytes = vec![0u8; comp_len];
-        self.reader.read_exact(&mut comp_bytes)?;
+        self.reader.read_exact(&mut comp_bytes).map_err(|e| {
+            std::io::Error::new(
+                e.kind(),
+                ChunkDecodeError {
+                    chunk_index,
+                    compression,
+                    start,
+                    end,
+                    kind: ChunkDecodeErrorKind::Read(e),
+                },
+            )
+        })?;
 
-        let ct = desc
-            .compression_type()
-            .ok_or_else(|| std::io::Error::other("unknown chunk compression type"))?;
-        let out = match ct {
-            CompressionType::None => comp_bytes,
-            CompressionType::Deflate => {
-                let mut decoder = flate2::bufread::DeflateDecoder::new(std::io::Cursor::new(comp_bytes));
-                let mut out = Vec::new();
-                decoder.read_to_end(&mut out)?;
-                out
-            }
-            CompressionType::Zstd => zstd::stream::decode_all(std::io::Cursor::new(comp_bytes)).map_err(|e| {
-                std::io::Error::other(format!(
-                    "zstd decode failed at chunk {}: {}",
-                    self.next_chunk_index - 1,
-                    e
-                ))
+        let out = match compression {
+            ChunkCompressionType::None => comp_bytes,
+            ChunkCompressionType::Zstd => zstd::stream::decode_all(std::io::Cursor::new(comp_bytes)).map_err(|e| {
+                std::io::Error::new(
+                    e.kind(),
+                    ChunkDecodeError {
+                        chunk_index,
+                        compression,
+                        start,
+                        end,
+                        kind: ChunkDecodeErrorKind::Zstd(e),
+                    },
+                )
             })?,
         };
 
         if out.len() != block_size {
-            return Err(std::io::Error::other(format!(
-                "unexpected chunk output size at chunk {}: got {} expected {}",
-                self.next_chunk_index - 1,
-                out.len(),
-                block_size
-            )));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                ChunkDecodeError {
+                    chunk_index,
+                    compression,
+                    start,
+                    end,
+                    kind: ChunkDecodeErrorKind::OutputSize {
+                        got: out.len(),
+                        expected: block_size,
+                    },
+                },
+            ));
         }
 
         self.buf = out;

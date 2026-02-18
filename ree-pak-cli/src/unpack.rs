@@ -130,8 +130,8 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
     let report = if cmd.test {
         match cmd.backend {
             CliPakBackend::Legacy => {
-                let file = std::fs::File::open(&cmd.input)
-                    .context(format!("Input file `{}` not found.", &cmd.input))?;
+                let file =
+                    std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
                 let pak = PakFile::from_file(file)?;
                 test_with_pak(
                     &pak,
@@ -142,8 +142,8 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
                 )?
             }
             CliPakBackend::Mmap => {
-                let file = std::fs::File::open(&cmd.input)
-                    .context(format!("Input file `{}` not found.", &cmd.input))?;
+                let file =
+                    std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
                 // SAFETY: read-only mapping.
                 let mmap = unsafe { MmapOptions::new().map(&file)? };
                 let pak = PakFile::from_reader(MmapReader::new(mmap))?;
@@ -159,8 +159,8 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
     } else {
         match cmd.backend {
             CliPakBackend::Legacy => {
-                let file = std::fs::File::open(&cmd.input)
-                    .context(format!("Input file `{}` not found.", &cmd.input))?;
+                let file =
+                    std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
                 let pak = PakFile::from_file(file)?;
                 unpack_with_pak(
                     pak,
@@ -172,8 +172,8 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
                 )?
             }
             CliPakBackend::Mmap => {
-                let file = std::fs::File::open(&cmd.input)
-                    .context(format!("Input file `{}` not found.", &cmd.input))?;
+                let file =
+                    std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
                 // SAFETY: read-only mapping.
                 let mmap = unsafe { MmapOptions::new().map(&file)? };
                 let pak = PakFile::from_reader(MmapReader::new(mmap))?;

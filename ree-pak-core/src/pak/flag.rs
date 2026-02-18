@@ -45,6 +45,29 @@ impl<'de> Deserialize<'de> for CompressionType {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ChunkCompressionType {
+    /// Stored (uncompressed) chunk.
+    #[default]
+    None,
+    /// Zstd-compressed chunk.
+    Zstd,
+}
+
+impl ChunkCompressionType {
+    pub fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(Self::None),
+            1 => Some(Self::Zstd),
+            _ => None,
+        }
+    }
+
+    pub fn bits(self) -> u8 {
+        self as u8
+    }
+}
+
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EncryptionType {

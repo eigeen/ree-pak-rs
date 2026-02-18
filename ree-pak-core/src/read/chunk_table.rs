@@ -3,15 +3,18 @@ use std::io::Read;
 use byteorder::{LE, ReadBytesExt};
 
 use crate::error::Result;
-use crate::pak::CompressionType;
+use crate::pak::ChunkCompressionType;
 
 /// Chunk table (feature flag `FeatureFlags::CHUNK_TABLE`).
 ///
 /// Some entries store `offset` as a chunk index (see `PakEntry::offset_is_chunk_index()`), and their `offset`
 /// is an index into this table
 /// (instead of a byte offset in the pak file). Each chunk expands to `block_size` bytes:
-/// - high 4 bits (`meta >> 28`): compression type (see `CompressionType`)
-/// - remaining bits: compressed length info (currently `meta & 0x0FFF_FFFF`, interpreted as `(len << 10)`)
+/// - `meta >> 10`: compressed byte length for this chunk
+/// - low 10 bits: unknown flags (reserved / unknown)
+///
+/// Compression is inferred from the byte length: `compressed_len == block_size` means stored (uncompressed),
+/// otherwise zstd.
 #[derive(Debug, Clone)]
 pub struct ChunkTable {
     block_size: u32,
@@ -35,10 +38,6 @@ impl ChunkTable {
 }
 
 impl ChunkDesc {
-    const COMPRESSION_BITS_SHIFT: u32 = 28;
-    const COMPRESSION_BITS_MASK: u32 = 0xF000_0000;
-    const COMPRESSED_LEN_MASK: u32 = 0x0FFF_FFFF;
-
     pub fn start(&self) -> u64 {
         self.start
     }
@@ -47,22 +46,20 @@ impl ChunkDesc {
         self.meta
     }
 
-    pub fn compression_type(&self) -> Option<CompressionType> {
-        let bits = self.compression_type_bits();
-        CompressionType::from_u8(bits)
+    pub fn compression_type(&self, block_size: u32) -> ChunkCompressionType {
+        if self.compressed_len() == block_size {
+            ChunkCompressionType::None
+        } else {
+            ChunkCompressionType::Zstd
+        }
     }
 
-    pub fn compression_type_bits(&self) -> u8 {
-        (self.meta >> Self::COMPRESSION_BITS_SHIFT) as u8
+    pub fn flags(&self) -> u16 {
+        (self.meta & 0x03FF) as u16
     }
 
-    pub fn compressed_len(&self, block_size: u32) -> Option<u32> {
-        let compression = self.compression_type()?;
-        let len = match compression {
-            CompressionType::None => block_size,
-            CompressionType::Deflate | CompressionType::Zstd => (self.meta & Self::COMPRESSED_LEN_MASK) >> 10,
-        };
-        Some(len)
+    pub fn compressed_len(&self) -> u32 {
+        self.meta >> 10
     }
 }
 
@@ -89,14 +86,6 @@ where
             high = high.wrapping_add(1u64 << 32);
         }
         let start = high | (start_low as u64);
-        // Validate compression bits early so downstream code can treat `ChunkDesc::compression_type()` as infallible.
-        let compression_bits = ((meta & ChunkDesc::COMPRESSION_BITS_MASK) >> ChunkDesc::COMPRESSION_BITS_SHIFT) as u8;
-        if CompressionType::from_u8(compression_bits).is_none() {
-            return Err(crate::error::PakError::InvalidChunkTable(format!(
-                "unknown chunk compression type: 0x{:X}",
-                compression_bits,
-            )));
-        }
         chunks.push(ChunkDesc { start, meta });
         prev = start_low;
     }

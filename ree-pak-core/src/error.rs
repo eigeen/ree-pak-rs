@@ -7,6 +7,13 @@ pub enum PakError {
     #[error("Upstream IO Error: {0}")]
     IO(#[from] std::io::Error),
 
+    #[error("{source} (path: {path})")]
+    WithPath {
+        path: std::path::PathBuf,
+        #[source]
+        source: Box<PakError>,
+    },
+
     #[error("Invalid Pak file magic: expected {expected:X?}, found {found:X?}")]
     InvalidMagic { expected: [u8; 4], found: [u8; 4] },
     #[error("Unsupported Pak version: {major}.{minor}")]
@@ -36,4 +43,16 @@ pub enum PakError {
 
     #[error("Failed to build rayon thread pool: {0}")]
     ThreadPoolBuild(String),
+}
+
+impl PakError {
+    pub fn with_path(self, path: impl Into<std::path::PathBuf>) -> Self {
+        match self {
+            Self::WithPath { .. } => self,
+            other => Self::WithPath {
+                path: path.into(),
+                source: Box::new(other),
+            },
+        }
+    }
 }

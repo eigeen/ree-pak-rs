@@ -41,14 +41,24 @@ where
 {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         match self {
-            CompressedReader::Store(inner) => inner.read(buf),
-            CompressedReader::Deflate(inner) => inner.read(buf),
-            CompressedReader::Zstd(inner) => inner.read(buf),
+            CompressedReader::Store(inner) => inner
+                .read(buf)
+                .map_err(PakReaderError::RawData)
+                .map_err(|e| e.into_io_error()),
+            CompressedReader::Deflate(inner) => inner
+                .read(buf)
+                .map_err(|e| PakReaderError::Decompression {
+                    compression: self.compression_type(),
+                    source: e,
+                })
+                .map_err(|e| e.into_io_error()),
+            CompressedReader::Zstd(inner) => inner
+                .read(buf)
+                .map_err(|e| PakReaderError::Decompression {
+                    compression: self.compression_type(),
+                    source: e,
+                })
+                .map_err(|e| e.into_io_error()),
         }
-        .map_err(|e| PakReaderError::Decompression {
-            compression: self.compression_type(),
-            source: e,
-        })
-        .map_err(|e| e.into_io_error())
     }
 }

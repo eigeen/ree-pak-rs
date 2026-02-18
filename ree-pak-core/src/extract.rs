@@ -527,7 +527,7 @@ where
                                 path: rel_path.clone(),
                             });
                         }
-                        let result = extract_one(entry, rel_path.as_path());
+                        let result = extract_one(entry, rel_path.as_path()).map_err(|e| e.with_path(rel_path.clone()));
                         match result {
                             Ok(()) => extracted.inc(),
                             Err(e) => {
@@ -569,7 +569,7 @@ where
                                 path: rel_path.clone(),
                             });
                         }
-                        let result = extract_one(entry, rel_path.as_path());
+                        let result = extract_one(entry, rel_path.as_path()).map_err(|e| e.with_path(rel_path.clone()));
                         if let Some(on_event) = &on_event {
                             on_event(ExtractEvent::FileDone {
                                 hash: entry.hash(),
@@ -593,7 +593,7 @@ where
                                 path: rel_path.clone(),
                             });
                         }
-                        let result = extract_one(entry, rel_path.as_path());
+                        let result = extract_one(entry, rel_path.as_path()).map_err(|e| e.with_path(rel_path.clone()));
                         if let Err(e) = &result {
                             errors
                                 .lock()

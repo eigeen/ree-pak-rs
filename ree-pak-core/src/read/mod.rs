@@ -14,21 +14,28 @@ pub mod entry;
 #[derive(Debug, thiserror::Error)]
 pub enum PakReaderError {
     #[error("Failed to read raw data: {0}")]
-    RawData(std::io::Error),
+    RawData(#[source] std::io::Error),
     #[error("Failed to decompress from {compression:?}: {source}")]
     Decompression {
         compression: CompressionType,
+        #[source]
         source: std::io::Error,
     },
     #[error("Invalid compression type: {0}")]
     InvalidCompressionType(u8),
     #[error("Failed to determine file extension: {0}")]
-    Extension(std::io::Error),
+    Extension(#[source] std::io::Error),
 }
 
 impl PakReaderError {
     pub fn into_io_error(self) -> std::io::Error {
-        std::io::Error::other(self.to_string())
+        let kind = match &self {
+            PakReaderError::RawData(e) => e.kind(),
+            PakReaderError::Decompression { source, .. } => source.kind(),
+            PakReaderError::Extension(e) => e.kind(),
+            PakReaderError::InvalidCompressionType(_) => std::io::ErrorKind::InvalidData,
+        };
+        std::io::Error::new(kind, self)
     }
 }
 
