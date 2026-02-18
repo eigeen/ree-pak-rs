@@ -7,6 +7,11 @@ use crate::pak::{self, EncryptionType, PakEntry};
 use super::compressed::CompressedReader;
 
 /// Read a pak entry.
+///
+/// The reader yields the **decompressed** (and decrypted, if needed) bytes of a single pak entry.
+///
+/// - For [`EncryptionType`] != `None`, decryption requires buffering the compressed bytes in memory.
+/// - While reading, the first 8 bytes are cached to support [`PakEntryReader::determine_extension`].
 pub struct PakEntryReader<R> {
     reader: CompressedReader<R>,
     magic_buf: [u8; 8],
@@ -33,6 +38,9 @@ where
 impl PakEntryReader<Cursor<Vec<u8>>> {
     /// Create a new owned reader from full pak reader.
     /// Will read the raw data when creating the reader.
+    ///
+    /// Note: this path only supports entries whose offsets are byte offsets.
+    /// For chunk-index offsets, use [`crate::PakFile::open_entry`].
     pub fn new_owned<R1>(reader: &mut R1, entry: PakEntry) -> Result<Self>
     where
         R1: Read + Seek,
@@ -105,11 +113,15 @@ impl<R> PakEntryReader<R>
 where
     R: BufRead,
 {
+    /// Try to infer a recommended file extension based on the first 8 bytes (magic).
+    ///
+    /// This only works after the reader has produced at least 8 bytes of decompressed output.
     pub fn determine_extension(&self) -> Option<&str> {
         determine_extension_from_magic(self.magic_buf)
     }
 }
 
+/// Determine a file extension from the first 8 bytes of a file.
 pub fn determine_extension_from_bytes(bytes: &[u8]) -> Option<&'static str> {
     if bytes.len() < 8 {
         return None;
@@ -119,6 +131,7 @@ pub fn determine_extension_from_bytes(bytes: &[u8]) -> Option<&'static str> {
     determine_extension_from_magic(magic)
 }
 
+/// Determine a file extension from an 8-byte magic buffer.
 pub fn determine_extension_from_magic(magic: [u8; 8]) -> Option<&'static str> {
     let magic_lower = u32::from_le_bytes(magic[0..4].try_into().unwrap());
     let magic_upper = u32::from_le_bytes(magic[4..8].try_into().unwrap());

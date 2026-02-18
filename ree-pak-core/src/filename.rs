@@ -8,16 +8,21 @@ use crate::{
     utf16_hash::{Utf16HashExt, Utf16LeString},
 };
 
+/// A lookup table from entry hash (`u64`) to UTF-16LE file path.
 #[derive(Debug, Clone, Default)]
 pub struct FileNameTable {
     file_names: HashMap<u64, Utf16LeString, BuildNoHashHasher<u64>>,
 }
 
 impl FileNameTable {
+    /// Iterate over all `(hash, name)` pairs.
     pub fn file_names(&self) -> impl Iterator<Item = (&u64, &Utf16LeString)> {
         self.file_names.iter()
     }
 
+    /// Load a file list from disk.
+    ///
+    /// The list file can be plain UTF-8 text, or zstd-compressed bytes.
     pub fn from_list_file<P>(path: P) -> Result<Self>
     where
         P: AsRef<Path>,
@@ -26,6 +31,7 @@ impl FileNameTable {
         Self::from_bytes(&content)
     }
 
+    /// Parse a file list from bytes (plain text or zstd-compressed).
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         let file_names = Self::parse_raw_file_names(bytes)?;
         let iter = file_names.lines().filter_map(|line| {
@@ -39,6 +45,9 @@ impl FileNameTable {
         Self::from_list(iter)
     }
 
+    /// Build a table from a list of UTF-8 path strings.
+    ///
+    /// Path separators are normalized (`\\` → `/`) before hashing.
     pub fn from_list(file_names: impl IntoIterator<Item = String>) -> Result<Self> {
         let this = Mutex::new(Self::default());
         file_names.into_iter().for_each(|line| {
@@ -50,12 +59,14 @@ impl FileNameTable {
         Ok(this.into_inner())
     }
 
+    /// Insert one file name into the table.
     pub fn push_str(&mut self, file_name: &str) {
         let file_name = Utf16LeString::new_from_str(&file_name.replace('\\', "/"));
         let hash = file_name.hash_mixed();
         self.file_names.insert(hash, file_name);
     }
 
+    /// Get the file name string by its mixed hash.
     pub fn get_file_name(&self, hash: u64) -> Option<&Utf16LeString> {
         self.file_names.get(&hash)
     }

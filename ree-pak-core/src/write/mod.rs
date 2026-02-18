@@ -1,3 +1,14 @@
+//! Pak writer (pack) APIs.
+//!
+//! The writer is intentionally stateful:
+//! - call [`PakWriter::start_file`] (or `start_file_hash`) to begin a new entry
+//! - write bytes via the `Write` impl on [`PakWriter`]
+//! - call [`PakWriter::finish`] to finalize the TOC and entry table
+//!
+//! Note: the current implementation writes entry payload bytes **as-is** (no compression/encryption).
+//! If you set a non-`None` [`crate::pak::CompressionType`] or encryption type in [`FileOptions`],
+//! readers will treat the entry as compressed/encrypted and decoding will fail.
+
 use std::io::{self, Seek, Write};
 
 use indexmap::IndexMap;
@@ -10,6 +21,7 @@ use crate::{
 
 type Result<T> = std::result::Result<T, PakWriteError>;
 
+/// Errors produced by [`PakWriter`].
 #[derive(Debug, thiserror::Error)]
 pub enum PakWriteError {
     #[error("IO error: {0}")]
@@ -20,6 +32,10 @@ pub enum PakWriteError {
     EntryCountExceeded,
 }
 
+/// Write a pak file to an underlying `Write + Seek` target.
+///
+/// The writer pre-allocates space for the header + entry table at the beginning of the output stream,
+/// then writes file payloads, and finally seeks back to write the final TOC.
 pub struct PakWriter<W> {
     pub(crate) inner: W,
     pub(crate) files: IndexMap<u64, PakEntry>,
@@ -29,7 +45,10 @@ pub struct PakWriter<W> {
 }
 
 impl<W: Write + Seek> PakWriter<W> {
-    pub fn new(inner: W, alloc_entry_count: u64) -> Self {
+    /// Fallible constructor for [`PakWriter::new`].
+    ///
+    /// Prefer this in library code to avoid panics.
+    pub fn try_new(inner: W, alloc_entry_count: u64) -> Result<Self> {
         Self::new_with_options(
             inner,
             PakOptions {
@@ -37,9 +56,20 @@ impl<W: Write + Seek> PakWriter<W> {
                 ..Default::default()
             },
         )
-        .unwrap()
     }
 
+    /// Create a writer with a pre-allocated entry count.
+    ///
+    /// # Panics
+    ///
+    /// This is a convenience wrapper that panics on I/O / version errors.
+    /// Use [`PakWriter::try_new`] or [`PakWriter::new_with_options`] to handle errors.
+    pub fn new(inner: W, alloc_entry_count: u64) -> Self {
+        Self::try_new(inner, alloc_entry_count)
+            .expect("PakWriter::new failed (use try_new/new_with_options to handle errors)")
+    }
+
+    /// Create a writer with explicit [`PakOptions`].
     pub fn new_with_options(inner: W, options: PakOptions) -> Result<Self> {
         let mut this = PakWriter {
             inner,
@@ -52,10 +82,14 @@ impl<W: Write + Seek> PakWriter<W> {
         Ok(this)
     }
 
+    /// Start a new file entry by hashing a UTF-16 path.
+    ///
+    /// The path is not stored in the pak; only its hash is stored (as required by the RE pak format).
     pub fn start_file(&mut self, path: impl Utf16HashExt, options: FileOptions) -> Result<()> {
         self.start_file_hash(path.hash_mixed(), options)
     }
 
+    /// Start a new file entry by providing the precomputed mixed hash.
     pub fn start_file_hash(&mut self, hash: u64, options: FileOptions) -> Result<()> {
         // finish current file
         self.try_finish_file()?;
@@ -81,6 +115,9 @@ impl<W: Write + Seek> PakWriter<W> {
         Ok(())
     }
 
+    /// Finish the pak file: writes the final TOC + entry table and returns the file count.
+    ///
+    /// After calling this, the writer is consumed.
     pub fn finish(mut self) -> Result<u64> {
         if self.writing_to_file {
             self.try_finish_file()?;

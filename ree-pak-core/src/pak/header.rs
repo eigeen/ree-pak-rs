@@ -7,6 +7,7 @@ use super::FeatureFlags;
 
 const HEADER_MAGIC: &[u8; 4] = b"KPKA";
 
+/// Pak file header (TOC header).
 #[derive(Clone, Serialize, Deserialize, derive_more::Debug)]
 pub struct PakHeader {
     #[debug("{magic:02x?}")]

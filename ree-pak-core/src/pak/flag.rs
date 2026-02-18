@@ -95,6 +95,7 @@ impl From<u32> for EncryptionType {
 
 bitflags! {
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+    /// Feature flags stored in the pak header.
     pub struct FeatureFlags: u16 {
         const BIT00 = 1 << 0;
         const BIT01 = 1 << 1;
@@ -121,6 +122,7 @@ bitflags! {
 }
 
 impl FeatureFlags {
+    /// Returns `true` if all set flags are supported by this crate.
     pub fn check_supported(&self) -> bool {
         let supported_flags = FeatureFlags::ENTRY_ENCRYPTION | FeatureFlags::EXTRA_U32 | FeatureFlags::CHUNK_TABLE;
         self.bits() & !supported_flags.bits() == 0

@@ -1,3 +1,9 @@
+//! Low-level pak metadata reader.
+//!
+//! If you want a single “open and read entries” handle, prefer [`crate::PakFile`].
+//! This module is useful when you already have a `Read`/`Seek` implementation and only need
+//! to parse the header + entry table (`read_metadata`) or use the lower-level entry reader APIs.
+
 use std::io::{Cursor, Read};
 
 use byteorder::{LE, ReadBytesExt};
@@ -11,6 +17,7 @@ pub mod chunk_table;
 pub mod compressed;
 pub mod entry;
 
+/// Errors produced by entry payload reading (decompression / magic-based extension detection).
 #[derive(Debug, thiserror::Error)]
 pub enum PakReaderError {
     #[error("Failed to read raw data: {0}")]
@@ -28,6 +35,7 @@ pub enum PakReaderError {
 }
 
 impl PakReaderError {
+    /// Convert this error into a `std::io::Error` with a best-effort `ErrorKind`.
     pub fn into_io_error(self) -> std::io::Error {
         let kind = match &self {
             PakReaderError::RawData(e) => e.kind(),
@@ -39,6 +47,12 @@ impl PakReaderError {
     }
 }
 
+/// Read pak metadata (header + entry table) from the current stream position.
+///
+/// The input reader must be positioned at the start of the pak file.
+///
+/// If the pak header enables `FeatureFlags::ENTRY_ENCRYPTION`, this function will read the 128-byte key
+/// and decrypt the entry table bytes before parsing.
 pub fn read_metadata<R>(reader: &mut R) -> Result<PakMetadata>
 where
     R: Read,

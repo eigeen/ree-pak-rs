@@ -1,7 +1,8 @@
-pub type Result<T> = std::result::Result<T, PakError>;
+pub(crate) type Result<T> = std::result::Result<T, PakError>;
 
 type AnyError = Box<dyn std::error::Error + Send + Sync>;
 
+/// Top-level error type for pak read/extract operations.
 #[derive(Debug, thiserror::Error)]
 pub enum PakError {
     #[error("Upstream IO Error: {0}")]
@@ -46,6 +47,9 @@ pub enum PakError {
 }
 
 impl PakError {
+    /// Wrap this error with a filesystem path context.
+    ///
+    /// Extraction helpers use this to attach the output path that failed.
     pub fn with_path(self, path: impl Into<std::path::PathBuf>) -> Self {
         match self {
             Self::WithPath { .. } => self,

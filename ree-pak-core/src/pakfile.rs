@@ -7,7 +7,16 @@ use crate::pak::{ChunkCompressionType, EntryOffset, FeatureFlags, PakEntry, PakM
 use crate::read::chunk_table::ChunkTable;
 use crate::read::{self, entry::PakEntryReader};
 
+/// A pak reader that can be cheaply cloned for independent seeking/reading.
+///
+/// [`PakFile`] uses `try_clone()` to open multiple entries concurrently (e.g. parallel extraction),
+/// so the underlying reader must support independent cursors.
+///
+/// - `std::fs::File` supports OS-level cloning via `File::try_clone()`, which is wrapped by [`CloneableFile`].
+/// - In-memory readers like `std::io::Cursor<Vec<u8>>` are `Clone`, and therefore implement [`PakReader`]
+///   via the blanket impl below.
 pub trait PakReader: Read + Seek + Send + Sync {
+    /// Clone this reader so the clone can seek/read independently.
     fn try_clone(&self) -> std::io::Result<Self>
     where
         Self: Sized;
@@ -22,14 +31,19 @@ where
     }
 }
 
+/// A `File` wrapper that implements [`PakReader`] via `File::try_clone()`.
+///
+/// This is the default reader type for [`PakFile`], so `PakFile::from_file(File)` “just works”.
 #[derive(Debug)]
 pub struct CloneableFile(File);
 
 impl CloneableFile {
+    /// Wrap a `std::fs::File`.
     pub fn new(file: File) -> Self {
         Self(file)
     }
 
+    /// Consume the wrapper and return the inner `File`.
     pub fn into_inner(self) -> File {
         self.0
     }
@@ -54,6 +68,16 @@ impl PakReader for CloneableFile {
 }
 
 /// High-level, parallel-friendly pak file handle.
+///
+/// ## Design notes
+///
+/// - Construction reads and caches [`PakMetadata`] (header + entry table).
+/// - If the pak header contains [`FeatureFlags::CHUNK_TABLE`], the chunk table is loaded and stored.
+/// - Entry reads are performed via fresh clones of the underlying reader (`R: PakReader`),
+///   enabling parallel extraction without sharing a single `&mut R`.
+///
+/// Use [`PakFile::open_entry`] to obtain a [`PakEntryReader`] that transparently decrypts and decompresses
+/// the entry payload.
 pub struct PakFile<R: PakReader = CloneableFile> {
     reader: R,
     metadata: PakMetadata,
@@ -62,6 +86,7 @@ pub struct PakFile<R: PakReader = CloneableFile> {
 }
 
 impl PakFile<CloneableFile> {
+    /// Create a [`PakFile`] from a `std::fs::File`.
     pub fn from_file(file: File) -> Result<Self> {
         Self::from_reader(CloneableFile::new(file))
     }
@@ -71,6 +96,10 @@ impl<R> PakFile<R>
 where
     R: PakReader,
 {
+    /// Create a [`PakFile`] from a custom reader.
+    ///
+    /// This reads metadata from the start of the stream and keeps `reader` for later entry access.
+    /// The reader will be cloned internally to perform independent seeks.
     pub fn from_reader(reader: R) -> Result<Self> {
         let file_size = {
             let mut r = reader.try_clone()?;
@@ -98,10 +127,19 @@ where
         })
     }
 
+    /// Return the cached pak metadata (header + entry table).
     pub fn metadata(&self) -> &PakMetadata {
         &self.metadata
     }
 
+    /// Open an entry for reading (decrypt + decompress).
+    ///
+    /// This API supports both kinds of entry offsets:
+    /// - byte offsets (`EntryOffset::FileOffset`)
+    /// - chunk-index offsets (`EntryOffset::ChunkIndex`, requires a loaded chunk table)
+    ///
+    /// The returned reader implements `Read` and will stream the decompressed bytes.
+    /// For encrypted entries, the compressed bytes are fully buffered in memory in order to decrypt.
     pub fn open_entry(&self, entry: &PakEntry) -> Result<PakEntryReader<Box<dyn BufRead + Send + '_>>> {
         let raw: Box<dyn BufRead + Send + '_> = match entry.offset() {
             EntryOffset::ChunkIndex(chunk_index) => {

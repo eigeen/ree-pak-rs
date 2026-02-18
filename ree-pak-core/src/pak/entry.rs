@@ -5,6 +5,10 @@ use crate::spec;
 
 use super::flag::{CompressionType, EncryptionType, KnownAttr};
 
+/// Entry offset representation.
+///
+/// Most paks store a byte offset (`FileOffset`) into the pak file.
+/// When `FeatureFlags::CHUNK_TABLE` is enabled, some entries may store `offset` as a chunk index.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntryOffset {
     FileOffset(u64),
@@ -92,6 +96,7 @@ pub struct PakEntry {
 }
 
 impl PakEntry {
+    /// Mixed (upper32|lower32) file name hash used by RE pak entries.
     pub fn hash(&self) -> u64 {
         let upper = self.hash_name_upper as u64;
         let lower = self.hash_name_lower as u64;

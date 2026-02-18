@@ -1,3 +1,17 @@
+//! Batch extraction (“unpack”) utilities.
+//!
+//! This module provides builder-style APIs for extracting pak entries:
+//!
+//! - [`crate::PakFile::extractor`]: extract to the filesystem.
+//! - [`crate::PakFile::extractor_callback`]: iterate entries and handle output via callbacks.
+//! - [`UnpackBuilder`]: the highest-level helper that opens a pak from a path and extracts it.
+//!
+//! Extraction supports:
+//! - parallel / sequential execution ([`ExtractMode`])
+//! - optional file-name table (`hash -> path`) via [`crate::FileNameTable`]
+//! - filtering by entry + optional path
+//! - event callbacks ([`ExtractEvent`]) and cooperative cancellation
+
 use std::fs::OpenOptions;
 use std::io::BufRead;
 use std::io::Read;
@@ -16,6 +30,9 @@ use crate::read::entry::PakEntryReader;
 
 type EntryFilter = dyn Fn(&PakEntry, Option<&str>) -> bool + Send + Sync;
 
+/// Extraction progress events (optional).
+///
+/// Register with [`PakExtractBuilder::on_event`] / [`PakExtractCallbackBuilder::on_event`].
 #[derive(Debug, Clone)]
 pub enum ExtractEvent {
     Start {
@@ -38,6 +55,7 @@ pub enum ExtractEvent {
     Aborted,
 }
 
+/// Summary returned by extraction runs.
 pub struct ExtractReport {
     pub extracted: usize,
     pub skipped: usize,
@@ -45,6 +63,7 @@ pub struct ExtractReport {
     pub errors: Vec<(u64, PathBuf, String)>,
 }
 
+/// Extraction execution mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExtractMode {
     Parallel,
@@ -57,6 +76,9 @@ impl Default for ExtractMode {
     }
 }
 
+/// Extract all entries in a pak into an output directory.
+///
+/// Construct via [`crate::PakFile::extractor`].
 pub struct PakExtractBuilder<'a, R: PakReader> {
     pak: &'a PakFile<R>,
     output_dir: PathBuf,
@@ -75,6 +97,7 @@ impl<'a, R> PakExtractBuilder<'a, R>
 where
     R: PakReader,
 {
+    /// Create a new builder that extracts to `output_dir`.
     pub fn new(pak: &'a PakFile<R>, output_dir: impl AsRef<Path>) -> Self {
         Self {
             pak,
@@ -156,6 +179,7 @@ where
         self
     }
 
+    /// Run extraction to the filesystem and return a summary report.
     pub fn run(self) -> Result<ExtractReport> {
         let PakExtractBuilder {
             pak,
@@ -193,6 +217,9 @@ where
     }
 }
 
+/// Extract entries using user-provided callbacks (instead of writing to FS).
+///
+/// Construct via [`crate::PakFile::extractor_callback`].
 pub struct PakExtractCallbackBuilder<'a, R: PakReader> {
     pak: &'a PakFile<R>,
     mode: ExtractMode,
@@ -209,6 +236,7 @@ impl<'a, R> PakExtractCallbackBuilder<'a, R>
 where
     R: PakReader,
 {
+    /// Create a new callback extractor.
     pub fn new(pak: &'a PakFile<R>) -> Self {
         Self {
             pak,
@@ -283,6 +311,10 @@ where
         self
     }
 
+    /// Run extraction and give each file a [`PakEntryReader`].
+    ///
+    /// This is the most capable callback mode (you can also inspect magic bytes via
+    /// `entry_reader.determine_extension()` after reading).
     pub fn run_with_entry_reader<F>(self, on_file: F) -> Result<ExtractReport>
     where
         F: for<'r> Fn(&PakEntry, &Path, &mut PakEntryReader<Box<dyn BufRead + Send + 'r>>) -> Result<()> + Send + Sync,
@@ -316,6 +348,7 @@ where
         })
     }
 
+    /// Run extraction and give each file a `&mut dyn Read` of decompressed bytes.
     pub fn run_with_reader<F>(self, on_file: F) -> Result<ExtractReport>
     where
         F: for<'r> Fn(&PakEntry, &Path, &mut dyn Read) -> Result<()> + Send + Sync,
@@ -349,6 +382,9 @@ where
         })
     }
 
+    /// Run extraction and provide decompressed bytes as an owned `Vec<u8>`.
+    ///
+    /// Prefer `run_with_reader` when files may be large.
     pub fn run_with_bytes<F>(self, on_file: F) -> Result<ExtractReport>
     where
         F: Fn(&PakEntry, &Path, Vec<u8>) -> Result<()> + Send + Sync,
@@ -654,16 +690,20 @@ impl<R> PakFile<R>
 where
     R: PakReader,
 {
+    /// Create a filesystem extractor rooted at `output_dir`.
     pub fn extractor(&self, output_dir: impl AsRef<Path>) -> PakExtractBuilder<'_, R> {
         PakExtractBuilder::new(self, output_dir)
     }
 
+    /// Create a callback-based extractor.
     pub fn extractor_callback(&self) -> PakExtractCallbackBuilder<'_, R> {
         PakExtractCallbackBuilder::new(self)
     }
 }
 
 /// Highest-level unpack API: open pak + extract with builder configuration.
+///
+/// Prefer this when you only have input/output paths and don't need to manage a [`PakFile`] manually.
 #[derive(Default)]
 pub struct UnpackBuilder {
     input: Option<PathBuf>,
