@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::sync::Arc;
 
 use crate::error::{PakError, Result};
-use crate::pak::{EntryOffset, FeatureFlags, PakEntry, PakMetadata};
+use crate::pak::{CompressionType, EntryOffset, FeatureFlags, PakEntry, PakMetadata};
 use crate::read::chunk_table::ChunkTable;
 use crate::read::{self, entry::PakEntryReader};
 
@@ -74,10 +74,7 @@ where
     pub fn from_reader(reader: R) -> Result<Self> {
         let file_size = {
             let mut r = reader.try_clone()?;
-            match r.seek(SeekFrom::End(0)) {
-                Ok(len) => Some(len),
-                Err(_) => None,
-            }
+            r.seek(SeekFrom::End(0)).ok()
         };
 
         let (metadata, chunk_table) = {
@@ -171,7 +168,7 @@ where
     ) -> Result<Self> {
         let block_size = table.block_size() as u64;
         if block_size == 0 {
-            return Err(PakError::InvalidChunkTable("block_size is 0"));
+            return Err(PakError::InvalidChunkTable("block_size is 0".to_string()));
         }
         if start_chunk >= table.chunks().len() {
             return Err(PakError::InvalidChunkIndex(start_chunk as u64));
@@ -179,7 +176,7 @@ where
 
         // Best-effort bounds check: ensure we have enough chunks to cover the declared length.
         if total_len > 0 {
-            let needed = (total_len + block_size - 1) / block_size;
+            let needed = total_len.div_ceil(block_size);
             let end = start_chunk.saturating_add(needed as usize);
             if end > table.chunks().len() {
                 return Err(PakError::InvalidChunkIndex(end as u64));
@@ -213,7 +210,9 @@ where
         self.next_chunk_index += 1;
 
         let block_size = self.table.block_size() as usize;
-        let comp_len = desc.compressed_len(self.table.block_size()) as usize;
+        let comp_len = desc.compressed_len(self.table.block_size()).ok_or_else(|| {
+            std::io::Error::other("unknown chunk compression type, failed to get compressed length for chunk")
+        })? as usize;
         let start = desc.start() as usize;
         let end = start.saturating_add(comp_len);
 
@@ -229,16 +228,24 @@ where
         let mut comp_bytes = vec![0u8; comp_len];
         self.reader.read_exact(&mut comp_bytes)?;
 
-        let out = if desc.is_raw() {
-            comp_bytes
-        } else {
-            zstd::stream::decode_all(std::io::Cursor::new(comp_bytes)).map_err(|e| {
+        let ct = desc
+            .compression_type()
+            .ok_or_else(|| std::io::Error::other("unknown chunk compression type"))?;
+        let out = match ct {
+            CompressionType::None => comp_bytes,
+            CompressionType::Deflate => {
+                let mut decoder = flate2::bufread::DeflateDecoder::new(std::io::Cursor::new(comp_bytes));
+                let mut out = Vec::new();
+                decoder.read_to_end(&mut out)?;
+                out
+            }
+            CompressionType::Zstd => zstd::stream::decode_all(std::io::Cursor::new(comp_bytes)).map_err(|e| {
                 std::io::Error::other(format!(
                     "zstd decode failed at chunk {}: {}",
                     self.next_chunk_index - 1,
                     e
                 ))
-            })?
+            })?,
         };
 
         if out.len() != block_size {

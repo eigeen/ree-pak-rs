@@ -32,7 +32,7 @@ pub enum PakError {
     #[error("Invalid chunk index: {0}")]
     InvalidChunkIndex(u64),
     #[error("Invalid chunk table: {0}")]
-    InvalidChunkTable(&'static str),
+    InvalidChunkTable(String),
 
     #[error("Failed to build rayon thread pool: {0}")]
     ThreadPoolBuild(String),

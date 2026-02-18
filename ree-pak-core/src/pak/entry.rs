@@ -180,7 +180,7 @@ impl From<spec::EntryV2> for PakEntry {
             offset,
             compressed_size: value.compressed_size,
             uncompressed_size: value.uncompressed_size,
-            compression_type: CompressionType::from_bits_truncate(known_attr.compression_bits()),
+            compression_type: CompressionType::from_u8(known_attr.compression_bits()).unwrap_or_default(),
             encryption_type: known_attr.encryption_bits().into(),
             checksum: value.checksum,
             known_attr,

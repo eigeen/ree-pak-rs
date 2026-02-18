@@ -3,14 +3,15 @@ use std::io::Read;
 use byteorder::{LE, ReadBytesExt};
 
 use crate::error::Result;
+use crate::pak::CompressionType;
 
 /// Chunk table (feature flag `FeatureFlags::CHUNK_TABLE`).
 ///
 /// Some entries store `offset` as a chunk index (see `PakEntry::offset_is_chunk_index()`), and their `offset`
 /// is an index into this table
 /// (instead of a byte offset in the pak file). Each chunk expands to `block_size` bytes:
-/// - `meta == 0x2000_0000`: raw chunk (stored uncompressed)
-/// - otherwise: zstd-compressed chunk of length `(meta >> 10)` bytes
+/// - high 4 bits (`meta >> 28`): compression type (see `CompressionType`)
+/// - remaining bits: compressed length info (currently `meta & 0x0FFF_FFFF`, interpreted as `(len << 10)`)
 #[derive(Debug, Clone)]
 pub struct ChunkTable {
     block_size: u32,
@@ -34,6 +35,10 @@ impl ChunkTable {
 }
 
 impl ChunkDesc {
+    const COMPRESSION_BITS_SHIFT: u32 = 28;
+    const COMPRESSION_BITS_MASK: u32 = 0xF000_0000;
+    const COMPRESSED_LEN_MASK: u32 = 0x0FFF_FFFF;
+
     pub fn start(&self) -> u64 {
         self.start
     }
@@ -42,12 +47,22 @@ impl ChunkDesc {
         self.meta
     }
 
-    pub fn is_raw(&self) -> bool {
-        (self.meta & 0xF000_0000) == 0x2000_0000
+    pub fn compression_type(&self) -> Option<CompressionType> {
+        let bits = self.compression_type_bits();
+        CompressionType::from_u8(bits)
     }
 
-    pub fn compressed_len(&self, block_size: u32) -> u32 {
-        if self.is_raw() { block_size } else { self.meta >> 10 }
+    pub fn compression_type_bits(&self) -> u8 {
+        (self.meta >> Self::COMPRESSION_BITS_SHIFT) as u8
+    }
+
+    pub fn compressed_len(&self, block_size: u32) -> Option<u32> {
+        let compression = self.compression_type()?;
+        let len = match compression {
+            CompressionType::None => block_size,
+            CompressionType::Deflate | CompressionType::Zstd => (self.meta & Self::COMPRESSED_LEN_MASK) >> 10,
+        };
+        Some(len)
     }
 }
 
@@ -74,6 +89,14 @@ where
             high = high.wrapping_add(1u64 << 32);
         }
         let start = high | (start_low as u64);
+        // Validate compression bits early so downstream code can treat `ChunkDesc::compression_type()` as infallible.
+        let compression_bits = ((meta & ChunkDesc::COMPRESSION_BITS_MASK) >> ChunkDesc::COMPRESSION_BITS_SHIFT) as u8;
+        if CompressionType::from_u8(compression_bits).is_none() {
+            return Err(crate::error::PakError::InvalidChunkTable(format!(
+                "unknown chunk compression type: 0x{:X}",
+                compression_bits,
+            )));
+        }
         chunks.push(ChunkDesc { start, meta });
         prev = start_low;
     }

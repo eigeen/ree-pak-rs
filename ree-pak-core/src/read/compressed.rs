@@ -15,9 +15,9 @@ pub enum CompressedReader<R> {
 impl<R> CompressedReader<R> {
     pub fn compression_type(&self) -> CompressionType {
         match self {
-            CompressedReader::Store(_) => CompressionType::NONE,
-            CompressedReader::Deflate(_) => CompressionType::DEFLATE,
-            CompressedReader::Zstd(_) => CompressionType::ZSTD,
+            CompressedReader::Store(_) => CompressionType::None,
+            CompressedReader::Deflate(_) => CompressionType::Deflate,
+            CompressedReader::Zstd(_) => CompressionType::Zstd,
         }
     }
 }
@@ -27,14 +27,10 @@ where
     R: BufRead,
 {
     pub fn new(reader: R, compression: CompressionType) -> Result<Self> {
-        if compression.contains(CompressionType::DEFLATE) {
-            Ok(Self::Deflate(flate2::bufread::DeflateDecoder::new(reader)))
-        } else if compression.contains(CompressionType::ZSTD) {
-            Ok(Self::Zstd(zstd::stream::Decoder::with_buffer(reader)?))
-        } else if compression.contains(CompressionType::NONE) {
-            Ok(Self::Store(reader))
-        } else {
-            unreachable!("Invalid compression type")
+        match compression {
+            CompressionType::None => Ok(Self::Store(reader)),
+            CompressionType::Deflate => Ok(Self::Deflate(flate2::bufread::DeflateDecoder::new(reader))),
+            CompressionType::Zstd => Ok(Self::Zstd(zstd::stream::Decoder::with_buffer(reader)?)),
         }
     }
 }

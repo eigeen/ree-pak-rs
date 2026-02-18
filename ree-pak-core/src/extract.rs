@@ -175,7 +175,7 @@ where
             std::fs::create_dir_all(&output_dir)?;
         }
 
-        run_extract_impl(
+        ExtractRunCtx {
             pak,
             mode,
             threads,
@@ -185,13 +185,12 @@ where
             filter,
             on_event,
             cancel_flag,
-            move |entry, rel_path| {
-                let out_path = output_dir.join(rel_path);
-                extract_entry_to_fs(pak, entry, &out_path, overwrite)
-            },
-        )
+        }
+        .run(move |entry, rel_path| {
+            let out_path = output_dir.join(rel_path);
+            extract_entry_to_fs(pak, entry, &out_path, overwrite)
+        })
     }
-
 }
 
 pub struct PakExtractCallbackBuilder<'a, R: PakReader> {
@@ -300,7 +299,7 @@ where
             cancel_flag,
         } = self;
 
-        run_extract_impl(
+        ExtractRunCtx {
             pak,
             mode,
             threads,
@@ -310,11 +309,11 @@ where
             filter,
             on_event,
             cancel_flag,
-            move |entry, rel_path| {
-                let mut entry_reader = pak.open_entry(entry)?;
-                on_file(entry, rel_path, &mut entry_reader)
-            },
-        )
+        }
+        .run(move |entry, rel_path| {
+            let mut entry_reader = pak.open_entry(entry)?;
+            on_file(entry, rel_path, &mut entry_reader)
+        })
     }
 
     pub fn run_with_reader<F>(self, on_file: F) -> Result<ExtractReport>
@@ -333,7 +332,7 @@ where
             cancel_flag,
         } = self;
 
-        run_extract_impl(
+        ExtractRunCtx {
             pak,
             mode,
             threads,
@@ -343,11 +342,11 @@ where
             filter,
             on_event,
             cancel_flag,
-            move |entry, rel_path| {
-                let mut entry_reader = pak.open_entry(entry)?;
-                on_file(entry, rel_path, &mut entry_reader)
-            },
-        )
+        }
+        .run(move |entry, rel_path| {
+            let mut entry_reader = pak.open_entry(entry)?;
+            on_file(entry, rel_path, &mut entry_reader)
+        })
     }
 
     pub fn run_with_bytes<F>(self, on_file: F) -> Result<ExtractReport>
@@ -366,7 +365,7 @@ where
             cancel_flag,
         } = self;
 
-        run_extract_impl(
+        ExtractRunCtx {
             pak,
             mode,
             threads,
@@ -376,17 +375,22 @@ where
             filter,
             on_event,
             cancel_flag,
-            move |entry, rel_path| {
-                let mut entry_reader = pak.open_entry(entry)?;
-                let mut buf = Vec::new();
-                entry_reader.read_to_end(&mut buf)?;
-                on_file(entry, rel_path, buf)
-            },
-        )
+        }
+        .run(move |entry, rel_path| {
+            let mut entry_reader = pak.open_entry(entry)?;
+            let mut buf = Vec::new();
+            entry_reader.read_to_end(&mut buf)?;
+            on_file(entry, rel_path, buf)
+        })
     }
 }
 
-fn extract_entry_to_fs<R: PakReader>(pak: &PakFile<R>, entry: &PakEntry, out_path: &Path, overwrite: bool) -> Result<()> {
+fn extract_entry_to_fs<R: PakReader>(
+    pak: &PakFile<R>,
+    entry: &PakEntry,
+    out_path: &Path,
+    overwrite: bool,
+) -> Result<()> {
     if let Some(parent) = out_path.parent()
         && !parent.exists()
     {
@@ -415,8 +419,8 @@ fn extract_entry_to_fs<R: PakReader>(pak: &PakFile<R>, entry: &PakEntry, out_pat
     Ok(())
 }
 
-fn run_extract_impl<R, F>(
-    pak: &PakFile<R>,
+struct ExtractRunCtx<'a, R: PakReader> {
+    pak: &'a PakFile<R>,
     mode: ExtractMode,
     threads: Option<usize>,
     skip_unknown: bool,
@@ -425,23 +429,47 @@ fn run_extract_impl<R, F>(
     filter: Option<Arc<EntryFilter>>,
     on_event: Option<Arc<dyn Fn(ExtractEvent) + Send + Sync>>,
     cancel_flag: Option<Arc<AtomicBool>>,
-    extract_one: F,
-) -> Result<ExtractReport>
+}
+
+impl<'a, R> ExtractRunCtx<'a, R>
 where
     R: PakReader,
-    F: Fn(&PakEntry, &Path) -> Result<()> + Send + Sync,
 {
-    let mut tasks: Vec<(PakEntry, PathBuf)> = Vec::new();
-    let mut skipped = 0usize;
+    fn run<F>(self, extract_one: F) -> Result<ExtractReport>
+    where
+        F: Fn(&PakEntry, &Path) -> Result<()> + Send + Sync,
+    {
+        let Self {
+            pak,
+            mode,
+            threads,
+            skip_unknown,
+            continue_on_error,
+            file_name_table,
+            filter,
+            on_event,
+            cancel_flag,
+        } = self;
 
-    for entry in pak.metadata().entries() {
-        let (path_str, rel_path) = match &file_name_table {
-            Some(table) => match table.get_file_name(entry.hash()) {
-                Some(name) => {
-                    let s = name.to_string()?;
-                    let rel = PathBuf::from(&s);
-                    (Some(s), rel)
-                }
+        let mut tasks: Vec<(PakEntry, PathBuf)> = Vec::new();
+        let mut skipped = 0usize;
+
+        for entry in pak.metadata().entries() {
+            let (path_str, rel_path) = match &file_name_table {
+                Some(table) => match table.get_file_name(entry.hash()) {
+                    Some(name) => {
+                        let s = name.to_string()?;
+                        let rel = PathBuf::from(&s);
+                        (Some(s), rel)
+                    }
+                    None => {
+                        if skip_unknown {
+                            skipped += 1;
+                            continue;
+                        }
+                        (None, PathBuf::from(format!("_Unknown/{:08X}", entry.hash())))
+                    }
+                },
                 None => {
                     if skip_unknown {
                         skipped += 1;
@@ -449,184 +477,177 @@ where
                     }
                     (None, PathBuf::from(format!("_Unknown/{:08X}", entry.hash())))
                 }
-            },
-            None => {
-                if skip_unknown {
-                    skipped += 1;
-                    continue;
-                }
-                (None, PathBuf::from(format!("_Unknown/{:08X}", entry.hash())))
+            };
+
+            if let Some(filter) = &filter
+                && !filter(entry, path_str.as_deref())
+            {
+                skipped += 1;
+                continue;
             }
-        };
 
-        if let Some(filter) = &filter
-            && !filter(entry, path_str.as_deref())
-        {
-            skipped += 1;
-            continue;
+            tasks.push((entry.clone(), rel_path));
         }
 
-        tasks.push((entry.clone(), rel_path));
-    }
-
-    if let Some(on_event) = &on_event {
-        on_event(ExtractEvent::Start { total: tasks.len() });
-    }
-
-    if let Some(flag) = &cancel_flag
-        && flag.load(Ordering::Relaxed)
-    {
         if let Some(on_event) = &on_event {
-            on_event(ExtractEvent::Aborted);
+            on_event(ExtractEvent::Start { total: tasks.len() });
         }
-        return Ok(ExtractReport {
-            extracted: 0,
-            skipped,
-            failed: 0,
-            errors: vec![],
-        });
-    }
 
-    let errors: Arc<Mutex<Vec<(u64, PathBuf, String)>>> = Arc::new(Mutex::new(vec![]));
-    let extracted = Arc::new(AtomicCount::new());
+        if let Some(flag) = &cancel_flag
+            && flag.load(Ordering::Relaxed)
+        {
+            if let Some(on_event) = &on_event {
+                on_event(ExtractEvent::Aborted);
+            }
+            return Ok(ExtractReport {
+                extracted: 0,
+                skipped,
+                failed: 0,
+                errors: vec![],
+            });
+        }
 
-    let extract_one = Arc::new(extract_one);
+        let errors: Arc<Mutex<Vec<(u64, PathBuf, String)>>> = Arc::new(Mutex::new(vec![]));
+        let extracted = Arc::new(AtomicCount::new());
 
-    let should_abort = || cancel_flag.as_ref().is_some_and(|flag| flag.load(Ordering::Relaxed));
+        let extract_one = Arc::new(extract_one);
 
-    let work = || -> Result<()> {
-        match (mode, continue_on_error) {
-            (ExtractMode::Sequential, _) => {
-                for (entry, rel_path) in &tasks {
-                    if should_abort() {
-                        return Ok(());
+        let should_abort = || cancel_flag.as_ref().is_some_and(|flag| flag.load(Ordering::Relaxed));
+
+        let work = || -> Result<()> {
+            match (mode, continue_on_error) {
+                (ExtractMode::Sequential, _) => {
+                    for (entry, rel_path) in &tasks {
+                        if should_abort() {
+                            return Ok(());
+                        }
+                        if let Some(on_event) = &on_event {
+                            on_event(ExtractEvent::FileStart {
+                                hash: entry.hash(),
+                                path: rel_path.clone(),
+                            });
+                        }
+                        let result = extract_one(entry, rel_path.as_path());
+                        match result {
+                            Ok(()) => extracted.inc(),
+                            Err(e) => {
+                                let msg = e.to_string();
+                                errors
+                                    .lock()
+                                    .unwrap()
+                                    .push((entry.hash(), rel_path.clone(), msg.clone()));
+                                if let Some(on_event) = &on_event {
+                                    on_event(ExtractEvent::FileDone {
+                                        hash: entry.hash(),
+                                        path: rel_path.clone(),
+                                        error: Some(msg),
+                                    });
+                                }
+                                if !continue_on_error {
+                                    return Err(e);
+                                }
+                                continue;
+                            }
+                        }
+                        if let Some(on_event) = &on_event {
+                            on_event(ExtractEvent::FileDone {
+                                hash: entry.hash(),
+                                path: rel_path.clone(),
+                                error: None,
+                            });
+                        }
                     }
-                    if let Some(on_event) = &on_event {
-                        on_event(ExtractEvent::FileStart {
-                            hash: entry.hash(),
-                            path: rel_path.clone(),
-                        });
-                    }
-                    let result = extract_one(entry, rel_path.as_path());
-                    match result {
-                        Ok(()) => extracted.inc(),
-                        Err(e) => {
-                            let msg = e.to_string();
+                }
+                (ExtractMode::Parallel, false) => {
+                    tasks.par_iter().try_for_each(|(entry, rel_path)| -> Result<()> {
+                        if should_abort() {
+                            return Ok(());
+                        }
+                        if let Some(on_event) = &on_event {
+                            on_event(ExtractEvent::FileStart {
+                                hash: entry.hash(),
+                                path: rel_path.clone(),
+                            });
+                        }
+                        let result = extract_one(entry, rel_path.as_path());
+                        if let Some(on_event) = &on_event {
+                            on_event(ExtractEvent::FileDone {
+                                hash: entry.hash(),
+                                path: rel_path.clone(),
+                                error: result.as_ref().err().map(|e| e.to_string()),
+                            });
+                        }
+                        result?;
+                        extracted.inc();
+                        Ok(())
+                    })?;
+                }
+                (ExtractMode::Parallel, true) => {
+                    tasks.par_iter().for_each(|(entry, rel_path)| {
+                        if should_abort() {
+                            return;
+                        }
+                        if let Some(on_event) = &on_event {
+                            on_event(ExtractEvent::FileStart {
+                                hash: entry.hash(),
+                                path: rel_path.clone(),
+                            });
+                        }
+                        let result = extract_one(entry, rel_path.as_path());
+                        if let Err(e) = &result {
                             errors
                                 .lock()
                                 .unwrap()
-                                .push((entry.hash(), rel_path.clone(), msg.clone()));
-                            if let Some(on_event) = &on_event {
-                                on_event(ExtractEvent::FileDone {
-                                    hash: entry.hash(),
-                                    path: rel_path.clone(),
-                                    error: Some(msg),
-                                });
-                            }
-                            if !continue_on_error {
-                                return Err(e);
-                            }
-                            continue;
+                                .push((entry.hash(), rel_path.clone(), e.to_string()));
+                        } else {
+                            extracted.inc();
                         }
-                    }
-                    if let Some(on_event) = &on_event {
-                        on_event(ExtractEvent::FileDone {
-                            hash: entry.hash(),
-                            path: rel_path.clone(),
-                            error: None,
-                        });
-                    }
+                        if let Some(on_event) = &on_event {
+                            on_event(ExtractEvent::FileDone {
+                                hash: entry.hash(),
+                                path: rel_path.clone(),
+                                error: result.as_ref().err().map(|e| e.to_string()),
+                            });
+                        }
+                    });
                 }
             }
-            (ExtractMode::Parallel, false) => {
-                tasks.par_iter().try_for_each(|(entry, rel_path)| -> Result<()> {
-                    if should_abort() {
-                        return Ok(());
-                    }
-                    if let Some(on_event) = &on_event {
-                        on_event(ExtractEvent::FileStart {
-                            hash: entry.hash(),
-                            path: rel_path.clone(),
-                        });
-                    }
-                    let result = extract_one(entry, rel_path.as_path());
-                    if let Some(on_event) = &on_event {
-                        on_event(ExtractEvent::FileDone {
-                            hash: entry.hash(),
-                            path: rel_path.clone(),
-                            error: result.as_ref().err().map(|e| e.to_string()),
-                        });
-                    }
-                    result?;
-                    extracted.inc();
-                    Ok(())
-                })?;
-            }
-            (ExtractMode::Parallel, true) => {
-                tasks.par_iter().for_each(|(entry, rel_path)| {
-                    if should_abort() {
-                        return;
-                    }
-                    if let Some(on_event) = &on_event {
-                        on_event(ExtractEvent::FileStart {
-                            hash: entry.hash(),
-                            path: rel_path.clone(),
-                        });
-                    }
-                    let result = extract_one(entry, rel_path.as_path());
-                    if let Err(e) = &result {
-                        errors
-                            .lock()
-                            .unwrap()
-                            .push((entry.hash(), rel_path.clone(), e.to_string()));
-                    } else {
-                        extracted.inc();
-                    }
-                    if let Some(on_event) = &on_event {
-                        on_event(ExtractEvent::FileDone {
-                            hash: entry.hash(),
-                            path: rel_path.clone(),
-                            error: result.as_ref().err().map(|e| e.to_string()),
-                        });
-                    }
-                });
-            }
-        }
-        Ok(())
-    };
+            Ok(())
+        };
 
-    if mode == ExtractMode::Parallel {
-        if let Some(n) = threads {
-            let pool = rayon::ThreadPoolBuilder::new()
-                .num_threads(n)
-                .build()
-                .map_err(|e| PakError::ThreadPoolBuild(e.to_string()))?;
-            pool.install(work)?;
+        if mode == ExtractMode::Parallel {
+            if let Some(n) = threads {
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(n)
+                    .build()
+                    .map_err(|e| PakError::ThreadPoolBuild(e.to_string()))?;
+                pool.install(work)?;
+            } else {
+                work()?;
+            }
         } else {
             work()?;
         }
-    } else {
-        work()?;
-    }
 
-    let extracted = extracted.get();
-    let errors_vec = errors.lock().unwrap().clone();
-    let failed = errors_vec.len();
+        let extracted = extracted.get();
+        let errors_vec = errors.lock().unwrap().clone();
+        let failed = errors_vec.len();
 
-    if let Some(on_event) = &on_event {
-        on_event(ExtractEvent::Finish {
+        if let Some(on_event) = &on_event {
+            on_event(ExtractEvent::Finish {
+                extracted,
+                skipped,
+                failed,
+            });
+        }
+
+        Ok(ExtractReport {
             extracted,
             skipped,
             failed,
-        });
+            errors: errors_vec,
+        })
     }
-
-    Ok(ExtractReport {
-        extracted,
-        skipped,
-        failed,
-        errors: errors_vec,
-    })
 }
 
 impl<R> PakFile<R>

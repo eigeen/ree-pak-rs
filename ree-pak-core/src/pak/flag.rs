@@ -1,12 +1,27 @@
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 
-bitflags! {
-    #[derive(Debug, Clone, Copy, PartialEq, Default)]
-    pub struct CompressionType: u8 {
-        const NONE = 0;
-        const DEFLATE = 1;
-        const ZSTD = 2;
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CompressionType {
+    #[default]
+    None = 0,
+    Deflate = 1,
+    Zstd = 2,
+}
+
+impl CompressionType {
+    pub fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(Self::None),
+            1 => Some(Self::Deflate),
+            2 => Some(Self::Zstd),
+            _ => None,
+        }
+    }
+
+    pub fn bits(self) -> u8 {
+        self as u8
     }
 }
 
@@ -25,7 +40,8 @@ impl<'de> Deserialize<'de> for CompressionType {
         D: serde::Deserializer<'de>,
     {
         let value = u8::deserialize(deserializer)?;
-        Ok(CompressionType::from_bits_truncate(value))
+        CompressionType::from_u8(value)
+            .ok_or_else(|| serde::de::Error::custom(format!("Invalid compression type: {value}")))
     }
 }
 
