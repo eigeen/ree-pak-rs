@@ -285,6 +285,7 @@ fn logical_path_extension_for_check(path: &Path) -> Option<String> {
     // Fixed format support:
     // - `name.suffix.version` (version is digits)
     // - `name.suffix.version.region` (version is digits; region is any non-empty string)
+    // - `name.suffix.version.arch.lang` (version is digits; arch is `X64`; lang is any non-empty string)
     if parts[last].chars().all(|c| c.is_ascii_digit()) {
         if last == 0 {
             return None;
@@ -292,6 +293,11 @@ fn logical_path_extension_for_check(path: &Path) -> Option<String> {
         ext_idx = last - 1;
     } else if last >= 2 && parts[last - 1].chars().all(|c| c.is_ascii_digit()) {
         ext_idx = last - 2;
+    } else if last >= 3
+        && parts[last - 2].chars().all(|c| c.is_ascii_digit())
+        && parts[last - 1].eq_ignore_ascii_case("X64")
+    {
+        ext_idx = last - 3;
     }
 
     if ext_idx == 0 {
@@ -512,6 +518,18 @@ mod tests {
         assert_eq!(
             logical_path_extension_for_check(Path::new("name.tex.251111100.ru")),
             Some("tex".to_string())
+        );
+    }
+
+    #[test]
+    fn logical_path_extension_for_check_handles_optional_arch_segment() {
+        assert_eq!(
+            logical_path_extension_for_check(Path::new("NPC102_00_001_04_00_ev.sbnk.1.Fr")),
+            Some("sbnk".to_string())
+        );
+        assert_eq!(
+            logical_path_extension_for_check(Path::new("NPC102_00_001_04_00_ev.sbnk.1.X64.Fr")),
+            Some("sbnk".to_string())
         );
     }
 }
