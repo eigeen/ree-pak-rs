@@ -2,6 +2,8 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::sync::Arc;
 
+use memmap2::Mmap;
+
 use crate::error::{PakError, Result};
 use crate::pak::{ChunkCompressionType, EntryOffset, FeatureFlags, PakEntry, PakMetadata};
 use crate::read::chunk_table::ChunkTable;
@@ -12,7 +14,8 @@ use crate::read::{self, entry::PakEntryReader};
 /// [`PakFile`] uses `try_clone()` to open multiple entries concurrently (e.g. parallel extraction),
 /// so the underlying reader must support independent cursors.
 ///
-/// - `std::fs::File` supports OS-level cloning via `File::try_clone()`, which is wrapped by [`CloneableFile`].
+/// - `std::fs::File` does **not** provide independent cursors when cloned at the OS-handle level (`try_clone` shares
+///   the underlying file pointer). This crate avoids that by using memory-mapped I/O for file-backed readers.
 /// - In-memory readers like `std::io::Cursor<Vec<u8>>` are `Clone`, and therefore implement [`PakReader`]
 ///   via the blanket impl below.
 pub trait PakReader: Read + Seek + Send + Sync {
@@ -31,39 +34,143 @@ where
     }
 }
 
-/// A `File` wrapper that implements [`PakReader`] via `File::try_clone()`.
+/// A read-only `File` mapped into memory.
+///
+/// Clones share the mapping but keep an independent cursor.
+#[derive(Debug)]
+pub struct MmapFile {
+    mmap: Arc<Mmap>,
+    pos: u64,
+}
+
+impl MmapFile {
+    /// Map an opened file into memory (read-only).
+    pub fn new(file: &File) -> std::io::Result<Self> {
+        // SAFETY: The mapping is treated as immutable. If the underlying file is concurrently modified,
+        // the OS may expose inconsistent data; callers must ensure the pak file is not mutated while mapped.
+        let mmap = unsafe { Mmap::map(file)? };
+        Ok(Self {
+            mmap: Arc::new(mmap),
+            pos: 0,
+        })
+    }
+
+    fn len(&self) -> u64 {
+        self.mmap.len() as u64
+    }
+}
+
+impl Read for MmapFile {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let len = self.len();
+        if self.pos >= len || buf.is_empty() {
+            return Ok(0);
+        }
+
+        let start = self.pos as usize;
+        let available = self.mmap.len().saturating_sub(start);
+        let want = buf.len().min(available);
+        buf[..want].copy_from_slice(&self.mmap[start..start + want]);
+        self.pos = self.pos.saturating_add(want as u64);
+        Ok(want)
+    }
+}
+
+impl Seek for MmapFile {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        let len = self.len() as i128;
+        let new_pos: i128 = match pos {
+            SeekFrom::Start(n) => n as i128,
+            SeekFrom::Current(delta) => self.pos as i128 + delta as i128,
+            SeekFrom::End(delta) => len + delta as i128,
+        };
+
+        if new_pos < 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid seek to a negative position",
+            ));
+        }
+
+        self.pos = new_pos as u64;
+        Ok(self.pos)
+    }
+}
+
+impl PakReader for MmapFile {
+    fn try_clone(&self) -> std::io::Result<Self> {
+        Ok(Self {
+            mmap: Arc::clone(&self.mmap),
+            pos: self.pos,
+        })
+    }
+}
+
+/// A `File` wrapper that implements [`PakReader`] with independent cursors.
 ///
 /// This is the default reader type for [`PakFile`], so `PakFile::from_file(File)` “just works”.
 #[derive(Debug)]
-pub struct CloneableFile(File);
+pub struct CloneableFile {
+    mmap: Arc<Mmap>,
+    pos: u64,
+}
 
 impl CloneableFile {
     /// Wrap a `std::fs::File`.
-    pub fn new(file: File) -> Self {
-        Self(file)
-    }
-
-    /// Consume the wrapper and return the inner `File`.
-    pub fn into_inner(self) -> File {
-        self.0
+    pub fn new(file: File) -> std::io::Result<Self> {
+        // SAFETY: The mapping is treated as immutable. If the underlying file is concurrently modified,
+        // the OS may expose inconsistent data; callers must ensure the pak file is not mutated while mapped.
+        let mmap = unsafe { Mmap::map(&file)? };
+        Ok(Self {
+            mmap: Arc::new(mmap),
+            pos: 0,
+        })
     }
 }
 
 impl Read for CloneableFile {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        self.0.read(buf)
+        let len = self.mmap.len() as u64;
+        if self.pos >= len || buf.is_empty() {
+            return Ok(0);
+        }
+
+        let start = self.pos as usize;
+        let available = self.mmap.len().saturating_sub(start);
+        let want = buf.len().min(available);
+        buf[..want].copy_from_slice(&self.mmap[start..start + want]);
+        self.pos = self.pos.saturating_add(want as u64);
+        Ok(want)
     }
 }
 
 impl Seek for CloneableFile {
     fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-        self.0.seek(pos)
+        let len = self.mmap.len() as i128;
+        let new_pos: i128 = match pos {
+            SeekFrom::Start(n) => n as i128,
+            SeekFrom::Current(delta) => self.pos as i128 + delta as i128,
+            SeekFrom::End(delta) => len + delta as i128,
+        };
+
+        if new_pos < 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid seek to a negative position",
+            ));
+        }
+
+        self.pos = new_pos as u64;
+        Ok(self.pos)
     }
 }
 
 impl PakReader for CloneableFile {
     fn try_clone(&self) -> std::io::Result<Self> {
-        self.0.try_clone().map(Self)
+        Ok(Self {
+            mmap: Arc::clone(&self.mmap),
+            pos: self.pos,
+        })
     }
 }
 
@@ -88,7 +195,12 @@ pub struct PakFile<R: PakReader = CloneableFile> {
 impl PakFile<CloneableFile> {
     /// Create a [`PakFile`] from a `std::fs::File`.
     pub fn from_file(file: File) -> Result<Self> {
-        Self::from_reader(CloneableFile::new(file))
+        Self::from_reader(CloneableFile::new(file)?)
+    }
+
+    /// Create a [`PakFile`] by memory-mapping the file (read-only).
+    pub fn from_file_mmap(file: &File) -> Result<PakFile<MmapFile>> {
+        PakFile::from_reader(MmapFile::new(file)?)
     }
 }
 
@@ -387,5 +499,86 @@ where
         self.buf_pos += want;
         self.remaining -= want as u64;
         Ok(want)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{SeekFrom, Write as _};
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_path(tag: &str) -> PathBuf {
+        let mut p = std::env::temp_dir();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        p.push(format!("ree_pak_core_{tag}_{}_{}.bin", std::process::id(), nanos));
+        p
+    }
+
+    #[test]
+    fn cloneable_file_independent_cursor() {
+        let path = temp_path("cloneablefile_cursor");
+
+        {
+            let mut f = File::create(&path).unwrap();
+            let bytes: Vec<u8> = (0u8..=255).collect();
+            f.write_all(&bytes).unwrap();
+        }
+
+        let base = CloneableFile::new(File::open(&path).unwrap()).unwrap();
+        let mut a = base.try_clone().unwrap();
+        let mut b = base.try_clone().unwrap();
+
+        a.seek(SeekFrom::Start(10)).unwrap();
+        b.seek(SeekFrom::Start(20)).unwrap();
+
+        let mut one = [0u8; 1];
+        a.read_exact(&mut one).unwrap();
+        assert_eq!(one[0], 10);
+        a.read_exact(&mut one).unwrap();
+        assert_eq!(one[0], 11);
+
+        b.read_exact(&mut one).unwrap();
+        assert_eq!(one[0], 20);
+        b.read_exact(&mut one).unwrap();
+        assert_eq!(one[0], 21);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn mmap_file_independent_cursor() {
+        let path = temp_path("mmapfile_cursor");
+
+        {
+            let mut f = File::create(&path).unwrap();
+            let bytes: Vec<u8> = (0u8..=255).collect();
+            f.write_all(&bytes).unwrap();
+        }
+
+        let file = File::open(&path).unwrap();
+        let base = MmapFile::new(&file).unwrap();
+        let mut a = base.try_clone().unwrap();
+        let mut b = base.try_clone().unwrap();
+
+        a.seek(SeekFrom::Start(10)).unwrap();
+        b.seek(SeekFrom::Start(20)).unwrap();
+
+        let mut one = [0u8; 1];
+        a.read_exact(&mut one).unwrap();
+        assert_eq!(one[0], 10);
+        a.read_exact(&mut one).unwrap();
+        assert_eq!(one[0], 11);
+
+        b.read_exact(&mut one).unwrap();
+        assert_eq!(one[0], 20);
+        b.read_exact(&mut one).unwrap();
+        assert_eq!(one[0], 21);
+
+        let _ = std::fs::remove_file(&path);
     }
 }

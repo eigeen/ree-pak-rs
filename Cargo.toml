@@ -17,6 +17,7 @@ sysinfo = "0.38"
 walkdir = "2"
 indexmap = "2.13"
 zerocopy = { version = "0.8", features = ["derive"] }
+memmap2 = "0.9"
 
 [profile.dev]
 incremental = true

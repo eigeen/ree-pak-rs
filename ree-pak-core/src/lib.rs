@@ -75,4 +75,4 @@ pub use extract::{
     ExtractEvent, ExtractMode, ExtractReport, PakExtractBuilder, PakExtractCallbackBuilder, UnpackBuilder,
 };
 pub use filename::FileNameTable;
-pub use pakfile::{CloneableFile, PakFile, PakReader};
+pub use pakfile::{CloneableFile, MmapFile, PakFile, PakReader};

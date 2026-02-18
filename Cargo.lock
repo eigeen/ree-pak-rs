@@ -815,7 +815,7 @@ dependencies = [
 
 [[package]]
 name = "ree-pak-core"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "bitflags",
  "byteorder",
@@ -823,6 +823,7 @@ dependencies = [
  "derive_more",
  "flate2",
  "indexmap",
+ "memmap2",
  "murmur3",
  "nohash",
  "num",
