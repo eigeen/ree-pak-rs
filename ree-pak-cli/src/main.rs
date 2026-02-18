@@ -63,6 +63,9 @@ struct UnpackCommand {
     /// Skip files with an unknown path while unpacking
     #[arg(long, default_value = "false")]
     r#skip_unknown: bool,
+    /// Test mode: extract in memory, do not write to disk
+    #[arg(long, default_value = "false")]
+    test: bool,
 }
 
 #[derive(Debug, Args)]

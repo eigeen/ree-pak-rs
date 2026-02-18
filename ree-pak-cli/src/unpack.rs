@@ -117,35 +117,75 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
     let bar = ProgressBar::new(0);
     bar.set_style(ProgressStyle::default_bar().template("{pos}/{len} files {wide_bar} elapsed: {elapsed} eta: {eta}")?);
     bar.enable_steady_tick(Duration::from_millis(100));
-    bar.println(format!("Output directory: `{}`", output_path.display()));
+    if cmd.test {
+        bar.println(format!(
+            "Test mode (in memory): output directory ignored: `{}`",
+            output_path.display()
+        ));
+    } else {
+        bar.println(format!("Output directory: `{}`", output_path.display()));
+    }
 
     // open pak (path wrapper kept in CLI)
-    let report = match cmd.backend {
-        CliPakBackend::Legacy => {
-            let file = std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
-            let pak = PakFile::from_file(file)?;
-            unpack_with_pak(
-                pak,
-                &output_path,
-                Arc::clone(&file_name_table),
-                Arc::clone(&filters),
-                bar.clone(),
-                cmd,
-            )?
+    let report = if cmd.test {
+        match cmd.backend {
+            CliPakBackend::Legacy => {
+                let file = std::fs::File::open(&cmd.input)
+                    .context(format!("Input file `{}` not found.", &cmd.input))?;
+                let pak = PakFile::from_file(file)?;
+                test_with_pak(
+                    &pak,
+                    Arc::clone(&file_name_table),
+                    Arc::clone(&filters),
+                    bar.clone(),
+                    cmd,
+                )?
+            }
+            CliPakBackend::Mmap => {
+                let file = std::fs::File::open(&cmd.input)
+                    .context(format!("Input file `{}` not found.", &cmd.input))?;
+                // SAFETY: read-only mapping.
+                let mmap = unsafe { MmapOptions::new().map(&file)? };
+                let pak = PakFile::from_reader(MmapReader::new(mmap))?;
+                test_with_pak(
+                    &pak,
+                    Arc::clone(&file_name_table),
+                    Arc::clone(&filters),
+                    bar.clone(),
+                    cmd,
+                )?
+            }
         }
-        CliPakBackend::Mmap => {
-            let file = std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
-            // SAFETY: read-only mapping.
-            let mmap = unsafe { MmapOptions::new().map(&file)? };
-            let pak = PakFile::from_reader(MmapReader::new(mmap))?;
-            unpack_with_pak(
-                pak,
-                &output_path,
-                Arc::clone(&file_name_table),
-                Arc::clone(&filters),
-                bar.clone(),
-                cmd,
-            )?
+    } else {
+        match cmd.backend {
+            CliPakBackend::Legacy => {
+                let file = std::fs::File::open(&cmd.input)
+                    .context(format!("Input file `{}` not found.", &cmd.input))?;
+                let pak = PakFile::from_file(file)?;
+                unpack_with_pak(
+                    pak,
+                    &output_path,
+                    Arc::clone(&file_name_table),
+                    Arc::clone(&filters),
+                    bar.clone(),
+                    cmd,
+                )?
+            }
+            CliPakBackend::Mmap => {
+                let file = std::fs::File::open(&cmd.input)
+                    .context(format!("Input file `{}` not found.", &cmd.input))?;
+                // SAFETY: read-only mapping.
+                let mmap = unsafe { MmapOptions::new().map(&file)? };
+                let pak = PakFile::from_reader(MmapReader::new(mmap))?;
+                unpack_with_pak(
+                    pak,
+                    &output_path,
+                    Arc::clone(&file_name_table),
+                    Arc::clone(&filters),
+                    bar.clone(),
+                    cmd,
+                )?
+            }
         }
     };
 
@@ -165,6 +205,50 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn test_with_pak<R>(
+    pak: &PakFile<R>,
+    file_name_table: Arc<FileNameTable>,
+    filters: Arc<Vec<Regex>>,
+    bar: ProgressBar,
+    cmd: &UnpackCommand,
+) -> anyhow::Result<ree_pak_core::extract::ExtractReport>
+where
+    R: PakReader,
+{
+    let report = pak
+        .extractor_callback()
+        .file_name_table_arc(file_name_table)
+        .skip_unknown(cmd.skip_unknown)
+        .continue_on_error(cmd.ignore_error)
+        .filter({
+            let filters = Arc::clone(&filters);
+            move |_entry, path| {
+                if filters.is_empty() {
+                    return true;
+                }
+                let Some(path) = path else { return false };
+                filters.iter().any(|f| f.is_match(path))
+            }
+        })
+        .on_event({
+            let bar = bar.clone();
+            move |event| match event {
+                ExtractEvent::Start { total } => bar.set_length(total as u64),
+                ExtractEvent::FileDone { error, .. } => {
+                    if let Some(error) = error {
+                        bar.println(format!("Error: {error}"));
+                    }
+                    bar.inc(1);
+                }
+                ExtractEvent::Finish { .. } => bar.finish(),
+                _ => {}
+            }
+        })
+        .run_with_bytes(|_entry, _rel_path, _bytes| Ok(()))?;
+
+    Ok(report)
 }
 
 fn unpack_with_pak<R>(
