@@ -250,17 +250,21 @@ where
             let bar = bar.clone();
             move |entry, rel_path, bytes| {
                 let determined = read::entry::determine_extension_from_bytes(&bytes);
-                if determined == Some("tex") {
-                    let path_ext = logical_path_extension_for_check(rel_path);
-                    if path_ext.as_deref() != Some("tex") {
+                if let Some(detected_ext) = determined
+                    && let Some(path_ext) = logical_path_extension_for_check(rel_path)
+                {
+                    let detected_ext = detected_ext.to_ascii_lowercase();
+                    if path_ext != detected_ext {
                         bar.println(format!(
-                            "Warning: extension mismatch for `{}`: path_ext={} detected=.tex hash={:016X}",
+                            "Warning: extension mismatch for `{}`: path_ext={} detected=.{} hash={:016X}",
                             rel_path.display(),
-                            path_ext.as_deref().unwrap_or("<none>"),
+                            path_ext,
+                            detected_ext,
                             entry.hash()
                         ));
                     }
                 }
+
                 Ok(())
             }
         })?;
@@ -270,21 +274,34 @@ where
 
 fn logical_path_extension_for_check(path: &Path) -> Option<String> {
     let file_name = path.file_name()?.to_string_lossy();
-    let mut parts = file_name.split('.').collect::<Vec<_>>();
+    let parts = file_name.split('.').collect::<Vec<_>>();
     if parts.len() < 2 {
         return None;
     }
-    let last = parts.pop().unwrap();
-    let ext = if last.chars().all(|c| c.is_ascii_digit()) && parts.len() >= 2 {
-        parts.pop().unwrap()
-    } else {
-        last
-    };
-    if ext.is_empty() {
-        None
-    } else {
-        Some(ext.to_ascii_lowercase())
+
+    let last = parts.len() - 1;
+    let mut ext_idx = last;
+
+    // Fixed format support:
+    // - `name.suffix.version` (version is digits)
+    // - `name.suffix.version.region` (version is digits; region is any non-empty string)
+    if parts[last].chars().all(|c| c.is_ascii_digit()) {
+        if last == 0 {
+            return None;
+        }
+        ext_idx = last - 1;
+    } else if last >= 2 && parts[last - 1].chars().all(|c| c.is_ascii_digit()) {
+        ext_idx = last - 2;
     }
+
+    if ext_idx == 0 {
+        return None;
+    }
+    let ext = parts[ext_idx].trim();
+    if ext.is_empty() || ext.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    Some(ext.to_ascii_lowercase())
 }
 
 fn unpack_with_pak<R>(
@@ -462,14 +479,39 @@ mod tests {
             logical_path_extension_for_check(Path::new("name.TEX.20260213")),
             Some("tex".to_string())
         );
-        assert_eq!(
-            logical_path_extension_for_check(Path::new("name.20260213")),
-            Some("20260213".to_string())
-        );
+        assert_eq!(logical_path_extension_for_check(Path::new("name.20260213")), None);
         assert_eq!(
             logical_path_extension_for_check(Path::new("name.tex")),
             Some("tex".to_string())
         );
         assert_eq!(logical_path_extension_for_check(Path::new("name")), None);
+    }
+
+    #[test]
+    fn logical_path_extension_for_check_handles_version_and_optional_region_suffix() {
+        assert_eq!(
+            logical_path_extension_for_check(Path::new("name.tex.ru")),
+            Some("ru".to_string())
+        );
+        assert_eq!(
+            logical_path_extension_for_check(Path::new("name.tex.es419")),
+            Some("es419".to_string())
+        );
+        assert_eq!(
+            logical_path_extension_for_check(Path::new("name.user.251111100.es419")),
+            Some("user".to_string())
+        );
+        assert_eq!(
+            logical_path_extension_for_check(Path::new("name.tex.251111100.ZhCn")),
+            Some("tex".to_string())
+        );
+        assert_eq!(
+            logical_path_extension_for_check(Path::new("name.user.251111100.enUS")),
+            Some("user".to_string())
+        );
+        assert_eq!(
+            logical_path_extension_for_check(Path::new("name.tex.251111100.ru")),
+            Some("tex".to_string())
+        );
     }
 }
