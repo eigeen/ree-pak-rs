@@ -70,6 +70,7 @@ mod spec;
 
 // Commonly-used re-exports for ergonomic crate usage.
 pub use error::PakError;
+pub use error::Result;
 pub use extract::{
     ExtractEvent, ExtractMode, ExtractReport, PakExtractBuilder, PakExtractCallbackBuilder, UnpackBuilder,
 };

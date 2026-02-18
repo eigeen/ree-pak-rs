@@ -307,18 +307,40 @@ where
 
         let out = match compression {
             ChunkCompressionType::None => comp_bytes,
-            ChunkCompressionType::Zstd => zstd::stream::decode_all(std::io::Cursor::new(comp_bytes)).map_err(|e| {
-                std::io::Error::new(
-                    e.kind(),
-                    ChunkDecodeError {
-                        chunk_index,
-                        compression,
-                        start,
-                        end,
-                        kind: ChunkDecodeErrorKind::Zstd(e),
-                    },
-                )
-            })?,
+            ChunkCompressionType::Zstd => {
+                // Chunked extraction expects exactly one fixed-size block output. Use a capped decode
+                // to avoid unbounded allocations on corrupted input.
+                let decoder = zstd::Decoder::new(std::io::Cursor::new(comp_bytes)).map_err(|e| {
+                    std::io::Error::new(
+                        e.kind(),
+                        ChunkDecodeError {
+                            chunk_index,
+                            compression,
+                            start,
+                            end,
+                            kind: ChunkDecodeErrorKind::Zstd(e),
+                        },
+                    )
+                })?;
+
+                let mut out = Vec::with_capacity(block_size);
+                decoder
+                    .take(block_size as u64 + 1)
+                    .read_to_end(&mut out)
+                    .map_err(|e| {
+                        std::io::Error::new(
+                            e.kind(),
+                            ChunkDecodeError {
+                                chunk_index,
+                                compression,
+                                start,
+                                end,
+                                kind: ChunkDecodeErrorKind::Zstd(e),
+                            },
+                        )
+                    })?;
+                out
+            }
         };
 
         if out.len() != block_size {

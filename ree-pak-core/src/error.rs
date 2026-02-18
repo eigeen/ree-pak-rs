@@ -1,4 +1,4 @@
-pub(crate) type Result<T> = std::result::Result<T, PakError>;
+pub type Result<T> = std::result::Result<T, PakError>;
 
 type AnyError = Box<dyn std::error::Error + Send + Sync>;
 
