@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["ree-pak-core", "ree-pak-cli", "ree-pak-gui/src-tauri"]
+members = ["ree-pak-core", "ree-pak-cli"]
 
 [workspace.dependencies]
 byteorder = "1.5"
