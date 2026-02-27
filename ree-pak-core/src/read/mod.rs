@@ -90,9 +90,15 @@ where
     reader.read_exact(&mut entry_table_bytes)?;
 
     if header.feature.contains(FeatureFlags::EXTRA_U32) {
-        // a unknown appended u32 value
+        // a unknown appended u32 value.
         let unk_u32 = reader.read_u32::<LE>()?;
         header.unk_u32_sig = unk_u32;
+    }
+    if header.feature.contains(FeatureFlags::EXTRA_DATA) {
+        // First appears in RE9
+        let mut extra = [0u8; 9];
+        reader.read_exact(&mut extra)?;
+        header.extra_data = extra.to_vec();
     }
     // decrypt
     if header.feature.contains(FeatureFlags::ENTRY_ENCRYPTION) {

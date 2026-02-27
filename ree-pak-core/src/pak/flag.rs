@@ -99,7 +99,10 @@ bitflags! {
     pub struct FeatureFlags: u16 {
         const BIT00 = 1 << 0;
         const BIT01 = 1 << 1;
-        const BIT02 = 1 << 2;
+        /// Pak contains an extra 9 bytes of data after the TOC (entry table) and before the 128-byte entry encryption key.
+        ///
+        /// First appears in RE9
+        const EXTRA_DATA = 1 << 2;
         const ENTRY_ENCRYPTION = 1 << 3;
         /// Pak contains an extra u32 data after the TOC.
         const EXTRA_U32 = 1 << 4;
@@ -123,7 +126,10 @@ bitflags! {
 
 impl FeatureFlags {
     const SUPPORTED_BITS: u16 =
-        Self::ENTRY_ENCRYPTION.bits() | Self::EXTRA_U32.bits() | Self::CHUNK_TABLE.bits();
+        Self::EXTRA_DATA.bits() | Self::ENTRY_ENCRYPTION.bits() | Self::EXTRA_U32.bits() | Self::CHUNK_TABLE.bits();
+
+    /// Back-compat alias for older versions of this crate (bit 0x4).
+    pub const BIT02: FeatureFlags = FeatureFlags::EXTRA_DATA;
 
     /// Returns `true` if all set flags are supported by this crate.
     pub fn check_supported(&self) -> bool {

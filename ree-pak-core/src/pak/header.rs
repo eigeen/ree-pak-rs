@@ -25,6 +25,15 @@ pub struct PakHeader {
     /// the value will between the resource headers
     /// and the 128 byte signature bytes.
     pub(crate) unk_u32_sig: u32,
+    /// Extra unknown bytes (currently 9 bytes) after the TOC and before the entry-table key.
+    ///
+    /// Present when [`FeatureFlags::EXTRA_DATA`] is set.
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        with = "crate::serde_util::serde_bytes_hex"
+    )]
+    pub(crate) extra_data: Vec<u8>,
 }
 
 impl Default for PakHeader {
@@ -37,6 +46,7 @@ impl Default for PakHeader {
             total_files: 0,
             hash: 0,
             unk_u32_sig: 0,
+            extra_data: Vec::new(),
         }
     }
 }
@@ -72,6 +82,10 @@ impl PakHeader {
 
     pub fn hash(&self) -> u32 {
         self.hash
+    }
+
+    pub fn extra_data(&self) -> &[u8] {
+        &self.extra_data
     }
 
     pub fn into_bytes(self) -> Vec<u8> {
@@ -131,6 +145,7 @@ impl PakHeader {
             total_files: this.total_files,
             hash: this.hash,
             unk_u32_sig: 0, // TODO
+            extra_data: Vec::new(),
         })
     }
 }
@@ -145,7 +160,7 @@ mod tests {
             magic: *HEADER_MAGIC,
             major_version: 4,
             minor_version: 2,
-            feature: (FeatureFlags::ENTRY_ENCRYPTION | FeatureFlags::BIT02).bits(),
+            feature: (FeatureFlags::ENTRY_ENCRYPTION | FeatureFlags::BIT00).bits(),
             total_files: 0,
             hash: 0,
         };
@@ -160,12 +175,12 @@ mod tests {
             magic: *HEADER_MAGIC,
             major_version: 4,
             minor_version: 2,
-            feature: (FeatureFlags::ENTRY_ENCRYPTION | FeatureFlags::BIT02).bits(),
+            feature: (FeatureFlags::ENTRY_ENCRYPTION | FeatureFlags::BIT00).bits(),
             total_files: 0,
             hash: 0,
         };
 
         let header = PakHeader::try_from_spec_with_strict_feature_flags(h, false).unwrap();
-        assert_eq!(header.feature().unsupported_bits(), FeatureFlags::BIT02.bits());
+        assert_eq!(header.feature().unsupported_bits(), FeatureFlags::BIT00.bits());
     }
 }
