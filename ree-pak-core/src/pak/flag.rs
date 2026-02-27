@@ -122,10 +122,17 @@ bitflags! {
 }
 
 impl FeatureFlags {
+    const SUPPORTED_BITS: u16 =
+        Self::ENTRY_ENCRYPTION.bits() | Self::EXTRA_U32.bits() | Self::CHUNK_TABLE.bits();
+
     /// Returns `true` if all set flags are supported by this crate.
     pub fn check_supported(&self) -> bool {
-        let supported_flags = FeatureFlags::ENTRY_ENCRYPTION | FeatureFlags::EXTRA_U32 | FeatureFlags::CHUNK_TABLE;
-        self.bits() & !supported_flags.bits() == 0
+        self.unsupported_bits() == 0
+    }
+
+    /// Return the raw bits that are not currently supported by this crate.
+    pub fn unsupported_bits(&self) -> u16 {
+        self.bits() & !Self::SUPPORTED_BITS
     }
 }
 

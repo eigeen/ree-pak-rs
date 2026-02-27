@@ -17,6 +17,20 @@ pub mod chunk_table;
 pub mod compressed;
 pub mod entry;
 
+#[derive(Debug, Clone, Copy)]
+pub struct PakReadOptions {
+    /// When `true`, reading fails if the pak header contains any feature flags not supported by this crate.
+    pub strict_feature_flags: bool,
+}
+
+impl Default for PakReadOptions {
+    fn default() -> Self {
+        Self {
+            strict_feature_flags: true,
+        }
+    }
+}
+
 /// Errors produced by entry payload reading (decompression / magic-based extension detection).
 #[derive(Debug, thiserror::Error)]
 pub enum PakReaderError {
@@ -57,9 +71,19 @@ pub fn read_metadata<R>(reader: &mut R) -> Result<PakMetadata>
 where
     R: Read,
 {
+    read_metadata_with_options(reader, PakReadOptions::default())
+}
+
+/// Read pak metadata (header + entry table) using custom options.
+///
+/// See [`read_metadata`] for details.
+pub fn read_metadata_with_options<R>(reader: &mut R, options: PakReadOptions) -> Result<PakMetadata>
+where
+    R: Read,
+{
     // read header
     let spec_header = spec::Header::from_reader(reader)?;
-    let mut header = PakHeader::try_from(spec_header)?;
+    let mut header = PakHeader::try_from_spec_with_strict_feature_flags(spec_header, options.strict_feature_flags)?;
 
     // read entries
     let mut entry_table_bytes = vec![0; (header.entry_size() * header.total_files()) as usize];

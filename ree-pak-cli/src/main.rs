@@ -66,6 +66,9 @@ struct UnpackCommand {
     /// Test mode: extract in memory, do not write to disk
     #[arg(long, default_value = "false")]
     test: bool,
+    /// Treat unsupported pak feature flags as an error (default: warn and ignore).
+    #[arg(long, default_value = "false")]
+    strict_feature_flags: bool,
 }
 
 #[derive(Debug, Args)]
@@ -82,6 +85,9 @@ struct DumpInfoCommand {
     /// Override existing files
     #[arg(long, default_value = "false")]
     r#override: bool,
+    /// Treat unsupported pak feature flags as an error (default: warn and ignore).
+    #[arg(long, default_value = "false")]
+    strict_feature_flags: bool,
 }
 
 #[derive(Debug, Args)]

@@ -9,6 +9,7 @@ use ree_pak_core::{
     filename::FileNameTable,
     pak::FeatureFlags,
     pakfile::{PakFile, PakReader},
+    PakReadOptions,
     read,
 };
 use regex::Regex;
@@ -47,7 +48,14 @@ pub fn dump_info(cmd: &DumpInfoCommand) -> color_eyre::Result<()> {
 
     let file = std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
     let mut reader = std::io::BufReader::new(file);
-    let metadata = read::read_metadata(&mut reader)?;
+    let metadata = read::read_metadata_with_options(
+        &mut reader,
+        PakReadOptions {
+            strict_feature_flags: cmd.strict_feature_flags,
+        },
+    )?;
+
+    warn_unsupported_feature_flags(metadata.header().feature(), cmd.strict_feature_flags, |s| eprintln!("{s}"));
 
     let chunk_table = if metadata.header().feature().contains(FeatureFlags::CHUNK_TABLE) {
         let table = read::chunk_table::read_chunk_table(&mut reader)?;
@@ -127,12 +135,18 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> color_eyre::Result<()> {
     }
 
     // open pak (path wrapper kept in CLI)
+    let read_options = PakReadOptions {
+        strict_feature_flags: cmd.strict_feature_flags,
+    };
     let report = if cmd.test {
         match cmd.backend {
             CliPakBackend::Legacy => {
                 let file =
                     std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
-                let pak = PakFile::from_file(file)?;
+                let pak = PakFile::from_file_with_options(file, read_options)?;
+                warn_unsupported_feature_flags(pak.metadata().header().feature(), cmd.strict_feature_flags, |s| {
+                    bar.println(s)
+                });
                 test_with_pak(
                     &pak,
                     Arc::clone(&file_name_table),
@@ -146,7 +160,10 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> color_eyre::Result<()> {
                     std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
                 // SAFETY: read-only mapping.
                 let mmap = unsafe { MmapOptions::new().map(&file)? };
-                let pak = PakFile::from_reader(MmapReader::new(mmap))?;
+                let pak = PakFile::from_reader_with_options(MmapReader::new(mmap), read_options)?;
+                warn_unsupported_feature_flags(pak.metadata().header().feature(), cmd.strict_feature_flags, |s| {
+                    bar.println(s)
+                });
                 test_with_pak(
                     &pak,
                     Arc::clone(&file_name_table),
@@ -161,7 +178,10 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> color_eyre::Result<()> {
             CliPakBackend::Legacy => {
                 let file =
                     std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
-                let pak = PakFile::from_file(file)?;
+                let pak = PakFile::from_file_with_options(file, read_options)?;
+                warn_unsupported_feature_flags(pak.metadata().header().feature(), cmd.strict_feature_flags, |s| {
+                    bar.println(s)
+                });
                 unpack_with_pak(
                     pak,
                     &output_path,
@@ -176,7 +196,10 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> color_eyre::Result<()> {
                     std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
                 // SAFETY: read-only mapping.
                 let mmap = unsafe { MmapOptions::new().map(&file)? };
-                let pak = PakFile::from_reader(MmapReader::new(mmap))?;
+                let pak = PakFile::from_reader_with_options(MmapReader::new(mmap), read_options)?;
+                warn_unsupported_feature_flags(pak.metadata().header().feature(), cmd.strict_feature_flags, |s| {
+                    bar.println(s)
+                });
                 unpack_with_pak(
                     pak,
                     &output_path,
@@ -205,6 +228,24 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> color_eyre::Result<()> {
     }
 
     Ok(())
+}
+
+fn warn_unsupported_feature_flags(
+    feature: FeatureFlags,
+    strict_feature_flags: bool,
+    mut emit: impl FnMut(String),
+) {
+    if strict_feature_flags {
+        return;
+    }
+    let unsupported = feature.unsupported_bits();
+    if unsupported == 0 {
+        return;
+    }
+    let raw = feature.bits();
+    emit(format!(
+        "Warning: pak contains unsupported feature flags: raw=0x{raw:X} unsupported=0x{unsupported:X} (ignored)"
+    ));
 }
 
 fn test_with_pak<R>(

@@ -7,7 +7,7 @@ use memmap2::Mmap;
 use crate::error::{PakError, Result};
 use crate::pak::{ChunkCompressionType, EntryOffset, FeatureFlags, PakEntry, PakMetadata};
 use crate::read::chunk_table::ChunkTable;
-use crate::read::{self, entry::PakEntryReader};
+use crate::read::{self, entry::PakEntryReader, PakReadOptions};
 
 /// A pak reader that can be cheaply cloned for independent seeking/reading.
 ///
@@ -198,6 +198,11 @@ impl PakFile<CloneableFile> {
         Self::from_reader(CloneableFile::new(file)?)
     }
 
+    /// Create a [`PakFile`] from a `std::fs::File` using custom options.
+    pub fn from_file_with_options(file: File, options: PakReadOptions) -> Result<Self> {
+        Self::from_reader_with_options(CloneableFile::new(file)?, options)
+    }
+
     /// Create a [`PakFile`] by memory-mapping the file (read-only).
     pub fn from_file_mmap(file: &File) -> Result<PakFile<MmapFile>> {
         PakFile::from_reader(MmapFile::new(file)?)
@@ -213,6 +218,11 @@ where
     /// This reads metadata from the start of the stream and keeps `reader` for later entry access.
     /// The reader will be cloned internally to perform independent seeks.
     pub fn from_reader(reader: R) -> Result<Self> {
+        Self::from_reader_with_options(reader, PakReadOptions::default())
+    }
+
+    /// Create a [`PakFile`] from a custom reader using custom options.
+    pub fn from_reader_with_options(reader: R, options: PakReadOptions) -> Result<Self> {
         let file_size = {
             let mut r = reader.try_clone()?;
             r.seek(SeekFrom::End(0)).ok()
@@ -222,7 +232,7 @@ where
             let mut r = reader.try_clone()?;
             r.seek(SeekFrom::Start(0))?;
             let mut buf = BufReader::new(r);
-            let metadata = read::read_metadata(&mut buf)?;
+            let metadata = read::read_metadata_with_options(&mut buf, options)?;
             let chunk_table = if metadata.header().feature().contains(FeatureFlags::CHUNK_TABLE) {
                 Some(Arc::new(read::chunk_table::read_chunk_table(&mut buf)?))
             } else {

@@ -76,3 +76,4 @@ pub use extract::{
 };
 pub use filename::FileNameTable;
 pub use pakfile::{CloneableFile, MmapFile, PakFile, PakReader};
+pub use read::PakReadOptions;

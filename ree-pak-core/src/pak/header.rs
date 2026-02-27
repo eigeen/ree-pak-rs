@@ -84,21 +84,43 @@ impl TryFrom<spec::Header> for PakHeader {
     type Error = crate::error::PakError;
 
     fn try_from(this: spec::Header) -> Result<Self, Self::Error> {
+        Self::try_from_spec_with_strict_feature_flags(this, true)
+    }
+}
+
+impl From<PakHeader> for spec::Header {
+    fn from(value: PakHeader) -> Self {
+        spec::Header {
+            magic: value.magic,
+            major_version: value.major_version,
+            minor_version: value.minor_version,
+            feature: value.feature.bits(),
+            total_files: value.total_files,
+            hash: value.hash,
+        }
+    }
+}
+
+impl PakHeader {
+    pub(crate) fn try_from_spec_with_strict_feature_flags(
+        this: spec::Header,
+        strict_feature_flags: bool,
+    ) -> Result<Self, crate::error::PakError> {
         if &this.magic != HEADER_MAGIC {
-            return Err(Self::Error::InvalidMagic {
+            return Err(crate::error::PakError::InvalidMagic {
                 expected: *HEADER_MAGIC,
                 found: this.magic,
             });
         }
         if ![2, 4].contains(&this.major_version) || ![0, 1, 2].contains(&this.minor_version) {
-            return Err(Self::Error::UnsupportedVersion {
+            return Err(crate::error::PakError::UnsupportedVersion {
                 major: this.major_version,
                 minor: this.minor_version,
             });
         }
         let feature = FeatureFlags::from_bits_truncate(this.feature);
-        if !feature.check_supported() {
-            return Err(Self::Error::UnsupportedFeature(feature));
+        if strict_feature_flags && !feature.check_supported() {
+            return Err(crate::error::PakError::UnsupportedFeature(feature));
         }
 
         Ok(PakHeader {
@@ -113,15 +135,37 @@ impl TryFrom<spec::Header> for PakHeader {
     }
 }
 
-impl From<PakHeader> for spec::Header {
-    fn from(value: PakHeader) -> Self {
-        spec::Header {
-            magic: value.magic,
-            major_version: value.major_version,
-            minor_version: value.minor_version,
-            feature: value.feature.bits(),
-            total_files: value.total_files,
-            hash: value.hash,
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn header_strict_feature_flags_errors() {
+        let h = spec::Header {
+            magic: *HEADER_MAGIC,
+            major_version: 4,
+            minor_version: 2,
+            feature: (FeatureFlags::ENTRY_ENCRYPTION | FeatureFlags::BIT02).bits(),
+            total_files: 0,
+            hash: 0,
+        };
+
+        let err = PakHeader::try_from_spec_with_strict_feature_flags(h, true).unwrap_err();
+        assert!(matches!(err, crate::error::PakError::UnsupportedFeature(_)));
+    }
+
+    #[test]
+    fn header_lenient_feature_flags_allows_unsupported() {
+        let h = spec::Header {
+            magic: *HEADER_MAGIC,
+            major_version: 4,
+            minor_version: 2,
+            feature: (FeatureFlags::ENTRY_ENCRYPTION | FeatureFlags::BIT02).bits(),
+            total_files: 0,
+            hash: 0,
+        };
+
+        let header = PakHeader::try_from_spec_with_strict_feature_flags(h, false).unwrap();
+        assert_eq!(header.feature().unsupported_bits(), FeatureFlags::BIT02.bits());
     }
 }
