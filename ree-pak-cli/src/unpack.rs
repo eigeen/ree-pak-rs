@@ -5,11 +5,11 @@ use color_eyre::eyre::{self, Context};
 use indicatif::{ProgressBar, ProgressStyle};
 use memmap2::{Mmap, MmapOptions};
 use ree_pak_core::{
+    PakReadOptions,
     extract::ExtractEvent,
     filename::FileNameTable,
     pak::FeatureFlags,
     pakfile::{PakFile, PakReader},
-    PakReadOptions,
     read,
 };
 use regex::Regex;
@@ -55,7 +55,9 @@ pub fn dump_info(cmd: &DumpInfoCommand) -> color_eyre::Result<()> {
         },
     )?;
 
-    warn_unsupported_feature_flags(metadata.header().feature(), cmd.strict_feature_flags, |s| eprintln!("{s}"));
+    warn_unsupported_feature_flags(metadata.header().feature(), cmd.strict_feature_flags, |s| {
+        eprintln!("{s}")
+    });
 
     let chunk_table = if metadata.header().feature().contains(FeatureFlags::CHUNK_TABLE) {
         let table = read::chunk_table::read_chunk_table(&mut reader)?;
@@ -230,11 +232,7 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> color_eyre::Result<()> {
     Ok(())
 }
 
-fn warn_unsupported_feature_flags(
-    feature: FeatureFlags,
-    strict_feature_flags: bool,
-    mut emit: impl FnMut(String),
-) {
+fn warn_unsupported_feature_flags(feature: FeatureFlags, strict_feature_flags: bool, mut emit: impl FnMut(String)) {
     if strict_feature_flags {
         return;
     }
@@ -295,7 +293,7 @@ where
                     && let Some(path_ext) = logical_path_extension_for_check(rel_path)
                 {
                     let detected_ext = detected_ext.to_ascii_lowercase();
-                    if path_ext != detected_ext {
+                    if !extensions_match_for_check(&path_ext, &detected_ext) {
                         bar.println(format!(
                             "Warning: extension mismatch for `{}`: path_ext={} detected=.{} hash={:016X}",
                             rel_path.display(),
@@ -349,6 +347,27 @@ fn logical_path_extension_for_check(path: &Path) -> Option<String> {
         return None;
     }
     Some(ext.to_ascii_lowercase())
+}
+
+fn extensions_match_for_check(path_ext: &str, detected_ext: &str) -> bool {
+    path_ext.eq_ignore_ascii_case(detected_ext)
+        || extension_alias_group(path_ext).is_some_and(|group| group.contains(&detected_ext))
+        || extension_alias_group(detected_ext).is_some_and(|group| group.contains(&path_ext))
+}
+
+fn extension_alias_group(ext: &str) -> Option<&'static [&'static str]> {
+    const PCK_ALIASES: &[&str] = &["pck", "spck"];
+    const BNK_ALIASES: &[&str] = &["bnk", "sbnk"];
+    const SDFT_ALIASES: &[&str] = &["sdft", "sdftex"];
+    const MESH_ALIASES: &[&str] = &["mesh", "mply"];
+
+    match ext.to_ascii_lowercase().as_str() {
+        "pck" | "spck" => Some(PCK_ALIASES),
+        "bnk" | "sbnk" => Some(BNK_ALIASES),
+        "sdft" | "sdftex" => Some(SDFT_ALIASES),
+        "mesh" | "mply" => Some(MESH_ALIASES),
+        _ => None,
+    }
 }
 
 fn unpack_with_pak<R>(
