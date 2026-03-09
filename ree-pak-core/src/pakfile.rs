@@ -7,7 +7,7 @@ use memmap2::Mmap;
 use crate::error::{PakError, Result};
 use crate::pak::{ChunkCompressionType, EntryOffset, FeatureFlags, PakEntry, PakMetadata};
 use crate::read::chunk_table::ChunkTable;
-use crate::read::{self, entry::PakEntryReader, PakReadOptions};
+use crate::read::{self, PakReadOptions, entry::PakEntryReader};
 
 /// A pak reader that can be cheaply cloned for independent seeking/reading.
 ///
@@ -446,21 +446,18 @@ where
                 })?;
 
                 let mut out = Vec::with_capacity(block_size);
-                decoder
-                    .take(block_size as u64 + 1)
-                    .read_to_end(&mut out)
-                    .map_err(|e| {
-                        std::io::Error::new(
-                            e.kind(),
-                            ChunkDecodeError {
-                                chunk_index,
-                                compression,
-                                start,
-                                end,
-                                kind: ChunkDecodeErrorKind::Zstd(e),
-                            },
-                        )
-                    })?;
+                decoder.take(block_size as u64 + 1).read_to_end(&mut out).map_err(|e| {
+                    std::io::Error::new(
+                        e.kind(),
+                        ChunkDecodeError {
+                            chunk_index,
+                            compression,
+                            start,
+                            end,
+                            kind: ChunkDecodeErrorKind::Zstd(e),
+                        },
+                    )
+                })?;
                 out
             }
         };

@@ -43,8 +43,11 @@ struct UnpackCommand {
     #[arg(short, long)]
     project: String,
     /// Input PAK file path
-    #[arg(short, long)]
-    input: String,
+    #[arg(short, long, conflicts_with = "input_list", required_unless_present = "input_list")]
+    input: Option<String>,
+    /// Input PAK list file path (UTF-8 text, one path per line)
+    #[arg(long, conflicts_with = "input")]
+    input_list: Option<String>,
     /// Output directory path
     #[arg(short, long)]
     output: Option<String>,

@@ -57,17 +57,49 @@ Options:
 Unpack a `PAK` file. The process is like unpacking a `ZIP` file, but with some additional features.
 
 ```
-Usage: ree-pak-cli.exe unpack [OPTIONS] --project <PROJECT> --input <INPUT>
+Unpack a PAK file
+
+Usage: ree-pak-cli.exe unpack [OPTIONS] --project <PROJECT>
 
 Options:
-  -p, --project <PROJECT>  Game project name or list file path, e.g. "MHRS_PC_Demo", "./MHRS_PC_Demo.list"
-  -i, --input <INPUT>      Input PAK file path
-  -o, --output <OUTPUT>    Output directory path
-  -f, --filter <FILTER>    Regex patterns to filter files to unpack by file path [default: ]
-      --ignore-error       Ignore errors during unpacking files
-      --override           Override existing files
-      --skip-unknown       Skip files with an unknown path while unpacking
-  -h, --help               Print help
+  -p, --project <PROJECT>
+          Game project name or list file path, e.g. "MHRS_PC_Demo", "./MHRS_PC_Demo.list"
+
+  -i, --input <INPUT>
+          Input PAK file path
+
+      --input-list <INPUT_LIST>
+          Input PAK list file path (UTF-8 text, one path per line)
+
+  -o, --output <OUTPUT>
+          Output directory path
+
+      --backend <BACKEND>
+          PAK reading backend. `legacy` uses regular file I/O; `mmap` uses memory mapping
+
+          Possible values:
+          - mmap:   Use `memmap2` memory mapping (default)
+          - legacy: Use regular file I/O (legacy mode)
+
+          [default: mmap]
+
+  -f, --filter <FILTER>
+          Regex patterns to filter files to unpack by file path
+
+      --ignore-error
+          Ignore errors during unpacking files
+
+      --override
+          Override existing files
+
+      --skip-unknown
+          Skip files with an unknown path while unpacking
+
+      --test
+          Test mode: extract in memory, do not write to disk
+
+      --strict-feature-flags
+          Treat unsupported pak feature flags as an error (default: warn and ignore)
 ```
 
 ### Pack

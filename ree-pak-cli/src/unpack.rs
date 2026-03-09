@@ -111,8 +111,7 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> color_eyre::Result<()> {
     // load project file name table
     let file_name_table = Arc::new(load_filename_table(&cmd.project)?);
 
-    // output path
-    let output_path = output_path(&cmd.output, &cmd.input);
+    let input_paths = load_input_paths(cmd)?;
 
     // apply filter
     let filters = cmd
@@ -123,10 +122,43 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> color_eyre::Result<()> {
         .collect::<Result<Vec<_>, _>>()?;
     let filters = Arc::new(filters);
 
+    let batch_mode = input_paths.len() > 1;
+    for (index, input_path) in input_paths.iter().enumerate() {
+        if batch_mode {
+            println!(
+                "[{}/{}] Processing `{}`",
+                index + 1,
+                input_paths.len(),
+                input_path.display()
+            );
+        }
+
+        let output_path = output_path(&cmd.output, input_path, batch_mode);
+        let report = unpack_one(
+            cmd,
+            input_path,
+            &output_path,
+            Arc::clone(&file_name_table),
+            Arc::clone(&filters),
+        )?;
+        print_extract_report(&report);
+    }
+
+    Ok(())
+}
+
+fn unpack_one(
+    cmd: &UnpackCommand,
+    input_path: &Path,
+    output_path: &Path,
+    file_name_table: Arc<FileNameTable>,
+    filters: Arc<Vec<Regex>>,
+) -> color_eyre::Result<ree_pak_core::extract::ExtractReport> {
     // progress
     let bar = ProgressBar::new(0);
     bar.set_style(ProgressStyle::default_bar().template("{pos}/{len} files {wide_bar} elapsed: {elapsed} eta: {eta}")?);
     bar.enable_steady_tick(Duration::from_millis(100));
+    bar.println(format!("Input file: `{}`", input_path.display()));
     if cmd.test {
         bar.println(format!(
             "Test mode (in memory): output directory ignored: `{}`",
@@ -143,77 +175,55 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> color_eyre::Result<()> {
     let report = if cmd.test {
         match cmd.backend {
             CliPakBackend::Legacy => {
-                let file =
-                    std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
+                let file = std::fs::File::open(input_path)
+                    .context(format!("Input file `{}` not found.", input_path.display()))?;
                 let pak = PakFile::from_file_with_options(file, read_options)?;
                 warn_unsupported_feature_flags(pak.metadata().header().feature(), cmd.strict_feature_flags, |s| {
                     bar.println(s)
                 });
-                test_with_pak(
-                    &pak,
-                    Arc::clone(&file_name_table),
-                    Arc::clone(&filters),
-                    bar.clone(),
-                    cmd,
-                )?
+                test_with_pak(&pak, file_name_table, filters, bar.clone(), cmd)?
             }
             CliPakBackend::Mmap => {
-                let file =
-                    std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
+                let file = std::fs::File::open(input_path)
+                    .context(format!("Input file `{}` not found.", input_path.display()))?;
                 // SAFETY: read-only mapping.
                 let mmap = unsafe { MmapOptions::new().map(&file)? };
                 let pak = PakFile::from_reader_with_options(MmapReader::new(mmap), read_options)?;
                 warn_unsupported_feature_flags(pak.metadata().header().feature(), cmd.strict_feature_flags, |s| {
                     bar.println(s)
                 });
-                test_with_pak(
-                    &pak,
-                    Arc::clone(&file_name_table),
-                    Arc::clone(&filters),
-                    bar.clone(),
-                    cmd,
-                )?
+                test_with_pak(&pak, file_name_table, filters, bar.clone(), cmd)?
             }
         }
     } else {
         match cmd.backend {
             CliPakBackend::Legacy => {
-                let file =
-                    std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
+                let file = std::fs::File::open(input_path)
+                    .context(format!("Input file `{}` not found.", input_path.display()))?;
                 let pak = PakFile::from_file_with_options(file, read_options)?;
                 warn_unsupported_feature_flags(pak.metadata().header().feature(), cmd.strict_feature_flags, |s| {
                     bar.println(s)
                 });
-                unpack_with_pak(
-                    pak,
-                    &output_path,
-                    Arc::clone(&file_name_table),
-                    Arc::clone(&filters),
-                    bar.clone(),
-                    cmd,
-                )?
+                unpack_with_pak(pak, output_path, file_name_table, filters, bar.clone(), cmd)?
             }
             CliPakBackend::Mmap => {
-                let file =
-                    std::fs::File::open(&cmd.input).context(format!("Input file `{}` not found.", &cmd.input))?;
+                let file = std::fs::File::open(input_path)
+                    .context(format!("Input file `{}` not found.", input_path.display()))?;
                 // SAFETY: read-only mapping.
                 let mmap = unsafe { MmapOptions::new().map(&file)? };
                 let pak = PakFile::from_reader_with_options(MmapReader::new(mmap), read_options)?;
                 warn_unsupported_feature_flags(pak.metadata().header().feature(), cmd.strict_feature_flags, |s| {
                     bar.println(s)
                 });
-                unpack_with_pak(
-                    pak,
-                    &output_path,
-                    Arc::clone(&file_name_table),
-                    Arc::clone(&filters),
-                    bar.clone(),
-                    cmd,
-                )?
+                unpack_with_pak(pak, output_path, file_name_table, filters, bar.clone(), cmd)?
             }
         }
     };
 
+    Ok(report)
+}
+
+fn print_extract_report(report: &ree_pak_core::extract::ExtractReport) {
     if report.failed > 0 {
         println!("Done with {} errors", report.failed);
         if report.errors.len() < 30 {
@@ -228,8 +238,6 @@ pub fn unpack_parallel(cmd: &UnpackCommand) -> color_eyre::Result<()> {
     } else {
         println!("Done.");
     }
-
-    Ok(())
 }
 
 fn warn_unsupported_feature_flags(feature: FeatureFlags, strict_feature_flags: bool, mut emit: impl FnMut(String)) {
@@ -478,22 +486,71 @@ impl Seek for MmapReader {
     }
 }
 
-fn output_path<P: AsRef<Path>>(output: &Option<String>, input: P) -> PathBuf {
+fn output_path<P: AsRef<Path>>(output: &Option<String>, input: P, batch_mode: bool) -> PathBuf {
+    let input = input.as_ref();
     if let Some(output) = &output {
-        // specified output directory
-        output.into()
-    } else if let Some(parent) = input.as_ref().parent() {
+        let base = PathBuf::from(output);
+        if batch_mode {
+            base.join(default_output_dir_name(input))
+        } else {
+            // specified output directory
+            base
+        }
+    } else if let Some(parent) = input.parent() {
         // relative to input directory
-        let dir_name = input
-            .as_ref()
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or("output".to_string());
-        parent.join(dir_name).to_string_lossy().to_string().into()
+        parent.join(default_output_dir_name(input))
     } else {
         // current directory
         ".".into()
     }
+}
+
+fn default_output_dir_name<P: AsRef<Path>>(input: P) -> String {
+    input
+        .as_ref()
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or("output".to_string())
+}
+
+fn load_input_paths(cmd: &UnpackCommand) -> color_eyre::Result<Vec<PathBuf>> {
+    if let Some(input) = &cmd.input {
+        return Ok(vec![PathBuf::from(input)]);
+    }
+
+    let list_path = PathBuf::from(
+        cmd.input_list
+            .as_deref()
+            .ok_or_else(|| eyre::eyre!("Either --input or --input-list must be provided."))?,
+    );
+    let content = std::fs::read_to_string(&list_path).context(format!(
+        "Failed to read input list file `{}` as UTF-8 text.",
+        list_path.display()
+    ))?;
+    let base_dir = list_path.parent().unwrap_or_else(|| Path::new("."));
+    let paths = parse_input_list(&content, base_dir);
+    if paths.is_empty() {
+        eyre::bail!(
+            "Input list file `{}` does not contain any pak paths.",
+            list_path.display()
+        );
+    }
+    Ok(paths)
+}
+
+fn parse_input_list(content: &str, base_dir: &Path) -> Vec<PathBuf> {
+    content
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim().strip_prefix('\u{feff}').unwrap_or(line.trim());
+            if line.is_empty() || line.starts_with('#') {
+                return None;
+            }
+
+            let path = PathBuf::from(line);
+            Some(if path.is_absolute() { path } else { base_dir.join(path) })
+        })
+        .collect()
 }
 
 fn load_filename_table(project_name_or_path: &str) -> color_eyre::Result<FileNameTable> {
@@ -590,6 +647,42 @@ mod tests {
         assert_eq!(
             logical_path_extension_for_check(Path::new("NPC102_00_001_04_00_ev.sbnk.1.X64.Fr")),
             Some("sbnk".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_input_list_supports_utf8_bom_relative_paths_and_comments() {
+        let paths = parse_input_list(
+            "\u{feff}a.pak\n\n# comment\nsub/b.pak\nC:\\games\\c.pak\n",
+            Path::new("C:/lists"),
+        );
+        assert_eq!(
+            paths,
+            vec![
+                PathBuf::from("C:/lists").join("a.pak"),
+                PathBuf::from("C:/lists").join("sub/b.pak"),
+                PathBuf::from("C:\\games\\c.pak"),
+            ]
+        );
+    }
+
+    #[test]
+    fn output_path_uses_subdirectories_in_batch_mode() {
+        assert_eq!(
+            output_path(
+                &Some("C:/output".to_string()),
+                Path::new("D:/mods/re_chunk_000.pak"),
+                true
+            ),
+            PathBuf::from("C:/output").join("re_chunk_000")
+        );
+        assert_eq!(
+            output_path(
+                &Some("C:/output".to_string()),
+                Path::new("D:/mods/re_chunk_000.pak"),
+                false
+            ),
+            PathBuf::from("C:/output")
         );
     }
 }
