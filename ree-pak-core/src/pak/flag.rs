@@ -111,7 +111,9 @@ bitflags! {
         /// When this flag is set, some entries may store `offset` as a chunk index
         /// (see `PakEntry::offset_is_chunk_index()`).
         const CHUNK_TABLE = 1 << 5;
-        const BIT06 = 1 << 6;
+        /// Pak contains an entry remap table after the TOC extras and before
+        /// the 128-byte entry encryption key.
+        const REMAP_ENTRIES = 1 << 6;
         const BIT07 = 1 << 7;
         const BIT08 = 1 << 8;
         const BIT09 = 1 << 9;
@@ -125,11 +127,17 @@ bitflags! {
 }
 
 impl FeatureFlags {
-    const SUPPORTED_BITS: u16 =
-        Self::EXTRA_DATA.bits() | Self::ENTRY_ENCRYPTION.bits() | Self::EXTRA_U32.bits() | Self::CHUNK_TABLE.bits();
+    const SUPPORTED_BITS: u16 = Self::EXTRA_DATA.bits()
+        | Self::ENTRY_ENCRYPTION.bits()
+        | Self::EXTRA_U32.bits()
+        | Self::CHUNK_TABLE.bits()
+        | Self::REMAP_ENTRIES.bits();
 
     /// Back-compat alias for older versions of this crate (bit 0x4).
     pub const BIT02: FeatureFlags = FeatureFlags::EXTRA_DATA;
+
+    /// Back-compat alias for bit 0x40.
+    pub const BIT06: FeatureFlags = FeatureFlags::REMAP_ENTRIES;
 
     /// Returns `true` if all set flags are supported by this crate.
     pub fn check_supported(&self) -> bool {

@@ -100,6 +100,9 @@ where
         reader.read_exact(&mut extra)?;
         header.extra_data = extra.to_vec();
     }
+    if header.feature.contains(FeatureFlags::REMAP_ENTRIES) {
+        skip_entry_remaps(reader)?;
+    }
     // decrypt
     if header.feature.contains(FeatureFlags::ENTRY_ENCRYPTION) {
         let mut raw_key = [0; 128];
@@ -110,6 +113,20 @@ where
     let entries = read_entries(&mut Cursor::new(&entry_table_bytes), &header)?;
 
     Ok(PakMetadata::new(header, entries))
+}
+
+fn skip_entry_remaps<R>(reader: &mut R) -> Result<()>
+where
+    R: Read,
+{
+    let count = reader.read_u64::<LE>()?;
+    let mut entry = [0u8; 16];
+
+    for _ in 0..count {
+        reader.read_exact(&mut entry)?;
+    }
+
+    Ok(())
 }
 
 fn read_entries<R>(reader: &mut R, header: &PakHeader) -> Result<Vec<PakEntry>>
@@ -149,4 +166,78 @@ where
     }
 
     Ok(entries)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use byteorder::{LE, ReadBytesExt as _};
+
+    use super::read_metadata;
+    use crate::{pak::FeatureFlags, spec};
+
+    const CHUNK_BLOCK_SIZE: u32 = 524_288;
+    const CHUNK_COUNT: u32 = 46_110;
+
+    fn header_bytes(feature: FeatureFlags) -> Vec<u8> {
+        spec::Header {
+            magic: *b"KPKA",
+            major_version: 4,
+            minor_version: 2,
+            feature: feature.bits(),
+            total_files: 0,
+            hash: 0,
+        }
+        .into_bytes()
+        .to_vec()
+    }
+
+    fn append_key_and_chunk_header(bytes: &mut Vec<u8>) {
+        bytes.extend_from_slice(&[0u8; 128]);
+        bytes.extend_from_slice(&CHUNK_BLOCK_SIZE.to_le_bytes());
+        bytes.extend_from_slice(&CHUNK_COUNT.to_le_bytes());
+    }
+
+    fn assert_chunk_header(reader: &mut Cursor<Vec<u8>>) {
+        assert_eq!(reader.read_u32::<LE>().unwrap(), CHUNK_BLOCK_SIZE);
+        assert_eq!(reader.read_u32::<LE>().unwrap(), CHUNK_COUNT);
+    }
+
+    #[test]
+    fn read_metadata_without_remaps_preserves_existing_layout() {
+        let feature = FeatureFlags::ENTRY_ENCRYPTION | FeatureFlags::CHUNK_TABLE;
+        assert_eq!(feature.bits(), 0x28);
+
+        let mut bytes = header_bytes(feature);
+        append_key_and_chunk_header(&mut bytes);
+
+        let mut reader = Cursor::new(bytes);
+        let metadata = read_metadata(&mut reader).unwrap();
+
+        assert!(metadata.entries().is_empty());
+        assert_eq!(metadata.header().feature(), feature);
+        assert_chunk_header(&mut reader);
+    }
+
+    #[test]
+    fn read_metadata_skips_remaps_before_encryption_key() {
+        let feature = FeatureFlags::ENTRY_ENCRYPTION | FeatureFlags::CHUNK_TABLE | FeatureFlags::REMAP_ENTRIES;
+        assert_eq!(feature.bits(), 0x68);
+        assert_eq!(FeatureFlags::BIT06, FeatureFlags::REMAP_ENTRIES);
+
+        let mut bytes = header_bytes(feature);
+        bytes.extend_from_slice(&1u64.to_le_bytes());
+        for value in [1u32, 2, 3, 4] {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        append_key_and_chunk_header(&mut bytes);
+
+        let mut reader = Cursor::new(bytes);
+        let metadata = read_metadata(&mut reader).unwrap();
+
+        assert!(metadata.entries().is_empty());
+        assert_eq!(metadata.header().feature(), feature);
+        assert_chunk_header(&mut reader);
+    }
 }
